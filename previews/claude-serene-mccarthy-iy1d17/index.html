@@ -426,9 +426,9 @@ ZONES.forEach(z=>{
    ============================================================ */
 const app=document.getElementById('app');
 const scene=new THREE.Scene();
-scene.fog=new THREE.FogExp2(0x02060a,0.012);
+scene.fog=new THREE.FogExp2(0x02060a,0.0085);
 const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,500);
-camera.position.set(0,8,46);
+camera.position.set(0,15,44);
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setSize(innerWidth,innerHeight);
@@ -450,37 +450,45 @@ scene.add(new THREE.AmbientLight(0x224455,1.2));
 const key=new THREE.PointLight(0x00e5ff,1.4,300); key.position.set(20,30,30); scene.add(key);
 const rim=new THREE.PointLight(0xa78bfa,0.8,300); rim.position.set(-30,-10,-20); scene.add(rim);
 
-/* starfield */
-(function stars(){
-  const g=new THREE.BufferGeometry(),n=1400,p=new Float32Array(n*3);
-  for(let i=0;i<n*3;i++)p[i]=(Math.random()-.5)*360;
+/* ---- galactic backdrop (organic Obsidian-graph cloud inside a slowly turning galaxy) ---- */
+function radialTex(){ const c=document.createElement('canvas'); c.width=c.height=128;
+  const x=c.getContext('2d'), g=x.createRadialGradient(64,64,0,64,64,64);
+  g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.4,'rgba(255,255,255,0.35)'); g.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=g; x.fillRect(0,0,128,128); return new THREE.CanvasTexture(c); }
+const GLOW=radialTex();
+const galaxyGroup=new THREE.Group(); scene.add(galaxyGroup);
+function starDisc(n,spread,flat,size,color,opacity,parent){
+  const g=new THREE.BufferGeometry(), p=new Float32Array(n*3);
+  for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, r=Math.pow(Math.random(),0.55)*spread;
+    p[i*3]=Math.cos(a)*r; p[i*3+1]=(Math.random()-0.5)*spread*flat; p[i*3+2]=Math.sin(a)*r; }
   g.setAttribute('position',new THREE.BufferAttribute(p,3));
-  scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x2b6577,size:.45,transparent:true,opacity:.7})));
-})();
-
-/* floor grid */
-const grid=new THREE.GridHelper(220,60,0x0a4a55,0x06303a);
-grid.position.y=-26; grid.material.transparent=true; grid.material.opacity=.35; scene.add(grid);
-
-/* containment sphere */
-const cont=new THREE.Mesh(new THREE.IcosahedronGeometry(34,2),
-  new THREE.MeshBasicMaterial({color:0x0a4a55,wireframe:true,transparent:true,opacity:.06}));
-scene.add(cont);
+  const pts=new THREE.Points(g,new THREE.PointsMaterial({color,size,transparent:true,opacity,depthWrite:false,blending:THREE.AdditiveBlending}));
+  (parent||scene).add(pts); return pts; }
+starDisc(2400,150,0.10,0.5,0x9fd8ff,0.85,galaxyGroup);   // bright galactic disc
+starDisc(1000,330,1.0,0.45,0x2f6c86,0.5,scene);          // far halo
+const coreGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:0x8fe3ff,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}));
+coreGlow.scale.set(42,42,1); galaxyGroup.add(coreGlow);
+[[0x2a4d8f,62,40,6,-10],[0x5a2f7a,54,-46,-6,8],[0x12506b,68,8,4,-30]].forEach(([c,s,px,py,pz])=>{
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:c,transparent:true,opacity:0.14,blending:THREE.AdditiveBlending,depthWrite:false}));
+  sp.scale.set(s,s*0.62,1); sp.position.set(px,py,pz); galaxyGroup.add(sp); });
 
 /* ============================================================
-   LAYOUT  (molecular / orbital, deterministic)
+   LAYOUT  (galactic disc + organic clusters, deterministic)
    ============================================================ */
-function fib(i,n,r){ const off=2/n, y=i*off-1+off/2, rr=Math.sqrt(1-y*y), phi=i*Math.PI*(3-Math.sqrt(5));
-  return new THREE.Vector3(Math.cos(phi)*rr*r, y*r, Math.sin(phi)*rr*r); }
-
-const ZR=17;
+function rng(seed){ return function(){ seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed);
+  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+const rand=rng(20260620);
+function clump(center,radius,flat){ const a=rand()*Math.PI*2,u=rand()*2-1,rr=radius*(0.45+0.55*rand()),sx=Math.sqrt(1-u*u);
+  return center.clone().add(new THREE.Vector3(Math.cos(a)*sx*rr, u*rr*flat, Math.sin(a)*sx*rr)); }
+const GA=Math.PI*(3-Math.sqrt(5));   // golden angle → sunflower spiral
 ALLZONES.forEach((z,i)=>{
-  z.pos=fib(i,ALLZONES.length,ZR);
-  const comps=z.children||[]; const cr=4+comps.length*0.22;
-  comps.forEach((c,j)=>{
-    c.pos=z.pos.clone().add(fib(j,Math.max(comps.length,3),cr));
-    const mods=c.children||[]; const mr=1.5+mods.length*0.12;
-    mods.forEach((m,k)=> m.pos=c.pos.clone().add(fib(k,Math.max(mods.length,3),mr)));
+  const ang=i*GA, rad=4.5+Math.sqrt(i+0.4)*5.4;          // galactic disc placement
+  z.pos=new THREE.Vector3(Math.cos(ang)*rad, (rand()-0.5)*6, Math.sin(ang)*rad);
+  const comps=z.children||[]; const cr=3.0+comps.length*0.16;
+  comps.forEach(c=>{
+    c.pos=clump(z.pos,cr,0.55);                          // organic cluster around the zone
+    const mods=c.children||[]; const mr=1.1+mods.length*0.1;
+    mods.forEach(m=> m.pos=clump(c.pos,mr,0.6));
   });
 });
 
@@ -528,25 +536,32 @@ function refreshAllLabels(){
 function roundRect(x,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);
   x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath();}
 
+/* glassy "Jarvis" shell — Fresnel rim glow, additive */
+const GLASS=new THREE.ShaderMaterial({
+  uniforms:{uColor:{value:new THREE.Color(0x00e5ff)},uIntensity:{value:1.0}},
+  vertexShader:`varying vec3 vN;varying vec3 vV;
+    void main(){vec4 mv=modelViewMatrix*vec4(position,1.0);vN=normalize(normalMatrix*normal);vV=normalize(-mv.xyz);gl_Position=projectionMatrix*mv;}`,
+  fragmentShader:`uniform vec3 uColor;uniform float uIntensity;varying vec3 vN;varying vec3 vV;
+    void main(){float f=pow(1.0-abs(dot(normalize(vN),normalize(vV))),2.3);
+      gl_FragColor=vec4(uColor*uIntensity, clamp(f,0.0,1.0));}`,
+  transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide
+});
 NODES.forEach(node=>{
   const col=node.lod===1?new THREE.Color(node.color):COLOR(node.id);
-  const r=node.lod===1?1.25:node.lod===2?0.52:0.3;
-  const geo=node.lod===1?new THREE.IcosahedronGeometry(r,1)
-        :node.lod===2?new THREE.IcosahedronGeometry(r,0)
-        :new THREE.OctahedronGeometry(r,0);
-  const core=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({
-     color:col,emissive:col,emissiveIntensity:node.lod===1?1.5:0.9,
-     metalness:.3,roughness:.4,transparent:true,opacity:.95}));
-  const wire=new THREE.Mesh(geo.clone(),new THREE.MeshBasicMaterial({
-     color:col,wireframe:true,transparent:true,opacity:node.lod===1?.5:.35}));
-  wire.scale.setScalar(1.35);
-  const g=new THREE.Group(); g.add(core); g.add(wire); g.position.copy(node.pos);
-  g.userData.node=node; g.userData.core=core; g.userData.wire=wire; g.userData.baseColor=col.clone();
-  nodeGroup.add(g); node.mesh=g; pickable.push(core); core.userData.group=g;
-  node.home=node.pos.clone(); node.vel=new THREE.Vector3(); node.fixed=false;   // force-layout state
+  const r=node.lod===1?1.3:node.lod===2?0.58:0.34;
+  const core=new THREE.Mesh(new THREE.IcosahedronGeometry(r*0.6,node.lod===1?1:0),
+    new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:node.lod===1?1.4:0.85,
+      metalness:.2,roughness:.35,transparent:true,opacity:.95}));
+  const shell=new THREE.Mesh(new THREE.SphereGeometry(r*1.3,24,16), GLASS.clone());
+  shell.material.uniforms.uColor.value=new THREE.Color().copy(col);
+  const g=new THREE.Group(); g.add(shell); g.add(core); g.position.copy(node.pos);
+  g.userData.node=node; g.userData.core=core; g.userData.shell=shell; g.userData.baseColor=col.clone();
+  nodeGroup.add(g); node.mesh=g;
+  pickable.push(shell); shell.userData.group=g; core.userData.group=g;
+  node.home=node.pos.clone(); node.vel=new THREE.Vector3(); node.fixed=false;
 
-  const lab=makeLabel(node.label, '#'+col.getHexString());
-  lab.position.copy(node.pos).add(new THREE.Vector3(0,node.lod===1?2.1:node.lod===2?1.0:.7,0));
+  const lab=makeLabel(node.label,'#'+col.getHexString());
+  lab.position.copy(node.pos).add(LBLOFF[node.lod]);
   lab.userData.node=node; labelGroup.add(lab); node.label3=lab;
 });
 
@@ -618,6 +633,7 @@ const ST={
 };
 const KIND_LABEL={software:'Software',hardware:'Hardware',data:'Daten',external:'Extern / API',logic:'Logik'};
 const KIND_COLOR={software:'#22d3ee',hardware:'#f87171',data:'#94a3b8',external:'#fbbf24',logic:'#fb923c'};
+const C_DARK=new THREE.Color(0x1a2730), C_RED=new THREE.Color(0xff3b5c);
 
 function nodeVisible(n){
   if(n.lod>ST.lod) return false;
@@ -628,28 +644,24 @@ function nodeVisible(n){
 }
 
 function refresh(){
-  // nodes + labels
   NODES.forEach(n=>{
     const vis=nodeVisible(n);
     n.mesh.visible=vis;
     n.label3.visible=vis && (n.lod<=2 || ST.lod===3);
-    const core=n.mesh.userData.core, wire=n.mesh.userData.wire;
-    let em=n.lod===1?1.5:0.9, op=.95, scale=1;
-    // mode-specific tinting
+    const core=n.mesh.userData.core, shell=n.mesh.userData.shell, base=n.mesh.userData.baseColor;
+    let em=n.lod===1?1.4:0.85, op=.95, scale=1, shellI=1.05, col=base;
     if(ST.mode==='whatif'){
-      if(ST.offline.has(n.id)){ core.material.color.set(0x223); core.material.emissive.set(0x112); em=.1; }
-      else if(ST.impacted.has(n.id)){ core.material.color.set(0xff3b5c); core.material.emissive.set(0xff3b5c); em=1.6; scale=1.15; }
-      else { core.material.color.copy(n.mesh.userData.baseColor); core.material.emissive.copy(n.mesh.userData.baseColor);
-             if(ST.offline.size) { em=.25; op=.4; } }
+      if(ST.offline.has(n.id)){ col=C_DARK; em=.08; shellI=.12; }
+      else if(ST.impacted.has(n.id)){ col=C_RED; em=1.7; shellI=1.9; scale=1.15; }
+      else if(ST.offline.size){ em=.22; op=.4; shellI=.3; }
     } else if(ST.mode==='trace' && ST.selected){
-      const inFlow=tracedNodes.has(n.id);
-      core.material.color.copy(n.mesh.userData.baseColor); core.material.emissive.copy(n.mesh.userData.baseColor);
-      if(inFlow){ em=1.6; scale=1.12; } else { em=.2; op=.35; }
-    } else {
-      core.material.color.copy(n.mesh.userData.baseColor); core.material.emissive.copy(n.mesh.userData.baseColor);
+      if(tracedNodes.has(n.id)){ em=1.7; shellI=1.7; scale=1.12; } else { em=.2; op=.35; shellI=.25; }
     }
-    if(ST.selected===n.id){ scale=1.3; em=2; }
+    if(ST.selected===n.id){ scale=1.32; em=2; shellI=2; }
+    core.material.color.copy(col); core.material.emissive.copy(col);
     core.material.emissiveIntensity=em; core.material.opacity=op;
+    shell.material.uniforms.uColor.value.copy(col);
+    shell.material.uniforms.uIntensity.value=shellI;
     n.mesh.userData.targetScale=scale;
     n.label3.material.opacity = (op<.5)?.3:1;
   });
@@ -845,7 +857,7 @@ fl.addEventListener('click',e=>{
 
 document.getElementById('reset').onclick=()=>{
   homing=90; dragNode=null; NODES.forEach(n=>{ n.fixed=false; });
-  controls.enabled=true; camera.position.set(0,8,46); controls.target.set(0,0,0);
+  controls.enabled=true; camera.position.set(0,15,44); controls.target.set(0,0,0);
 };
 document.getElementById('spin').onclick=()=>{ ST.autoRotate=!ST.autoRotate; controls.autoRotate=ST.autoRotate; };
 
@@ -875,7 +887,8 @@ const clock=new THREE.Clock();
 function tick(){
   const dt=clock.getDelta(), t=clock.elapsedTime;
   if(!renderer.xr.isPresenting) controls.update();
-  cont.rotation.y+=dt*0.02; cont.rotation.x+=dt*0.01;
+  galaxyGroup.rotation.y+=dt*0.012;                    // slow galactic turn
+  coreGlow.material.opacity=0.42+0.1*Math.sin(t*0.7);
 
   if(renderer.xr.isPresenting) updateControllers();   // grab / swipe before physics
   simulate();                                         // spring integration
@@ -884,7 +897,7 @@ function tick(){
   NODES.forEach(n=>{
     if(!n.mesh.visible)return;
     n.mesh.position.copy(n.pos);
-    n.mesh.userData.wire.rotation.y+=dt*0.3; n.mesh.userData.wire.rotation.x+=dt*0.18;
+    const cm=n.mesh.userData.core; cm.rotation.y+=dt*0.25; cm.rotation.x+=dt*0.15;
     const ts=n.mesh.userData.targetScale||1; const cur=n.mesh.scale.x;
     const ns=cur+(ts-cur)*Math.min(1,dt*8);
     n.mesh.scale.setScalar(ns*(1+Math.sin(t*1.6+n.home.x)*0.02));

@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NOERIX // Hermes Molecular Architecture</title>
+<style>
+  :root{
+    --cyan:#00e5ff; --cyan-dim:#0a4a55; --ink:#02060a; --panel:rgba(6,18,26,.72);
+    --line:rgba(0,229,255,.28); --txt:#bdf3ff; --txt-dim:#5d8a98;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--ink);overflow:hidden;
+    font-family:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;color:var(--txt)}
+  #app{position:fixed;inset:0}
+  canvas{display:block}
+
+  /* ---- HUD frame ---- */
+  .hud{position:fixed;pointer-events:none;z-index:10}
+  .corner{position:fixed;width:42px;height:42px;border:2px solid var(--cyan);opacity:.5;z-index:11;pointer-events:none}
+  .corner.tl{top:14px;left:14px;border-right:none;border-bottom:none}
+  .corner.tr{top:14px;right:14px;border-left:none;border-bottom:none}
+  .corner.bl{bottom:14px;left:14px;border-right:none;border-top:none}
+  .corner.br{bottom:14px;right:14px;border-left:none;border-top:none}
+
+  #title{top:22px;left:0;right:0;text-align:center}
+  #title h1{margin:0;font-size:15px;letter-spacing:6px;color:var(--cyan);
+    text-shadow:0 0 12px rgba(0,229,255,.7);font-weight:600}
+  #title .sub{font-size:9.5px;letter-spacing:3px;color:var(--txt-dim);margin-top:4px}
+
+  .pane{position:fixed;background:var(--panel);border:1px solid var(--line);
+    backdrop-filter:blur(7px);box-shadow:0 0 22px rgba(0,229,255,.08),inset 0 0 30px rgba(0,229,255,.04);
+    pointer-events:auto;z-index:12;border-radius:3px}
+  .pane h2{margin:0;padding:9px 12px;font-size:10px;letter-spacing:2.5px;color:var(--cyan);
+    border-bottom:1px solid var(--line);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+  .pane .body{padding:10px 12px;max-height:60vh;overflow-y:auto}
+  .pane .body::-webkit-scrollbar{width:6px}
+  .pane .body::-webkit-scrollbar-thumb{background:var(--cyan-dim);border-radius:3px}
+
+  #left{left:18px;top:74px;width:226px}
+  #right{right:18px;top:74px;width:250px}
+  #bottom{left:50%;transform:translateX(-50%);bottom:22px;width:min(760px,86vw)}
+
+  .row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:11px}
+  .row label{cursor:pointer;display:flex;align-items:center;gap:7px;flex:1}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 7px currentColor}
+  input[type=checkbox]{accent-color:var(--cyan);cursor:pointer}
+  input[type=range]{width:100%;accent-color:var(--cyan)}
+  select,button{font-family:inherit;background:rgba(0,229,255,.07);color:var(--txt);
+    border:1px solid var(--line);border-radius:3px;padding:5px 7px;font-size:11px;cursor:pointer;width:100%}
+  button:hover,select:hover{background:rgba(0,229,255,.16)}
+  .seg{display:flex;gap:4px;margin:4px 0 10px}
+  .seg button{flex:1;padding:6px 2px;font-size:9.5px;letter-spacing:1px}
+  .seg button.on{background:var(--cyan);color:#022;font-weight:700;box-shadow:0 0 12px rgba(0,229,255,.5)}
+  .hint{font-size:9.5px;color:var(--txt-dim);line-height:1.5;letter-spacing:.5px}
+  .small{font-size:9px;letter-spacing:1.5px;color:var(--txt-dim);margin:10px 0 3px;text-transform:uppercase}
+
+  .flowbtn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;margin:4px 0;padding:6px 8px}
+  .flowbtn.on{border-color:var(--cyan);background:rgba(0,229,255,.18)}
+  .flowbar{width:4px;height:14px;border-radius:2px;flex:none;box-shadow:0 0 7px currentColor}
+
+  #inspect .nm{font-size:13px;color:var(--cyan);letter-spacing:1px;margin-bottom:3px}
+  #inspect .meta{font-size:9.5px;color:var(--txt-dim);margin:2px 0}
+  #inspect .desc{font-size:11px;line-height:1.55;margin-top:8px;color:var(--txt)}
+  #inspect .file{font-size:9.5px;color:#6fe7ff;word-break:break-all;margin-top:6px}
+  .tag{display:inline-block;font-size:8.5px;letter-spacing:1px;padding:2px 6px;border:1px solid var(--line);
+    border-radius:10px;margin:3px 4px 0 0;color:var(--txt-dim)}
+
+  #legend{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center}
+  #legend .li{display:flex;align-items:center;gap:6px;font-size:9.5px;color:var(--txt-dim)}
+
+  #stats{position:fixed;left:18px;bottom:22px;font-size:9px;letter-spacing:1.5px;color:var(--txt-dim);z-index:12;line-height:1.6}
+  #vrslot{position:fixed;right:18px;bottom:78px;z-index:13}
+  .x{cursor:pointer;color:var(--txt-dim);font-size:13px}
+  .x:hover{color:var(--cyan)}
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:var(--ink);z-index:99;color:var(--cyan);letter-spacing:4px;font-size:13px}
+  .blink{animation:bl 1.1s steps(2) infinite}@keyframes bl{50%{opacity:.25}}
+</style>
+</head>
+<body>
+<div id="loading"><span class="blink">⬡ INITIALISIERE HOLOGRAMM…</span></div>
+<div id="app"></div>
+
+<div class="corner tl"></div><div class="corner tr"></div>
+<div class="corner bl"></div><div class="corner br"></div>
+
+<div class="hud" id="title">
+  <h1>NOERIX · HERMES</h1>
+  <div class="sub">MOLEKULARE SYSTEMARCHITEKTUR — HOLOGRAPHISCHE PROJEKTION</div>
+</div>
+
+<!-- LEFT: filters / detail -->
+<div class="pane" id="left">
+  <h2>STEUERUNG</h2>
+  <div class="body">
+    <div class="small">Modus</div>
+    <div class="seg" id="modeSeg">
+      <button data-mode="explore" class="on">EXPLORE</button>
+      <button data-mode="trace">DATENSTROM</button>
+      <button data-mode="whatif">WENN-DANN</button>
+    </div>
+
+    <div class="small">Detailstufe</div>
+    <input type="range" id="lod" min="1" max="3" step="1" value="2" />
+    <div class="hint" id="lodlbl">2 — Komponenten</div>
+
+    <div class="small">Zonen</div>
+    <div id="zoneFilters"></div>
+
+    <div class="small">Art (Hardware / Software / …)</div>
+    <div id="kindFilters"></div>
+
+    <div class="small">Tenant / Isolation</div>
+    <select id="tenant">
+      <option value="all">Alle</option>
+      <option value="global">Global / geteilt</option>
+      <option value="profile">Profil-isoliert</option>
+      <option value="board">Kanban-Board</option>
+      <option value="tenant">Kanban-Tenant</option>
+    </select>
+
+    <div style="margin-top:12px;display:flex;gap:6px">
+      <button id="reset">↺ RESET ANSICHT</button>
+      <button id="spin">⟳ AUTO</button>
+    </div>
+  </div>
+</div>
+
+<!-- RIGHT: flows + inspector -->
+<div class="pane" id="right">
+  <h2>DATENSTRÖME</h2>
+  <div class="body">
+    <div class="hint" id="modehint">Klicke einen Knoten zum Inspizieren.</div>
+    <div id="flowList"></div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:10px 0" />
+    <div id="inspect"><div class="meta">— kein Knoten gewählt —</div></div>
+  </div>
+</div>
+
+<!-- BOTTOM: legend -->
+<div class="pane" id="bottom">
+  <h2>ZONEN-LEGENDE <span class="x" onclick="document.getElementById('bottom').style.display='none'">✕</span></h2>
+  <div class="body"><div id="legend"></div></div>
+</div>
+
+<div id="stats"></div>
+<div id="vrslot"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+/* ============================================================
+   ARCHITECTURE MODEL  (derived from AGENTS.md — real Hermes layout)
+   lod: 1=zone 2=component 3=module ; kind: software|hardware|data|external|logic
+   tenant: global|profile|board|tenant
+   ============================================================ */
+const ZONES = [
+ {id:"core",label:"Core Waist",color:"#00e5ff",kind:"software",tenant:"global",
+  desc:"Schmale Taille: jeder hier hinzugefügte Tool-Schema-Eintrag wird bei jedem API-Call gesendet. Kapazität lebt an den Rändern.",
+  children:[
+   {id:"run_agent",label:"AIAgent Loop",file:"run_agent.py",kind:"software",tenant:"global",desc:"Kern-Konversationsschleife (~12k LOC). run_conversation(): synchron, Interrupt-Checks, Budget-Tracking, Tool-Call-Iterationen."},
+   {id:"model_tools",label:"Tool Orchestrator",file:"model_tools.py",kind:"software",tenant:"global",desc:"discover_builtin_tools(), handle_function_call(), get_tool_definitions(). Plugin-Hooks pre/post tool."},
+   {id:"toolsets",label:"Toolsets",file:"toolsets.py",kind:"software",tenant:"global",desc:"TOOLSETS dict + _HERMES_CORE_TOOLS. Pro Plattform-Adapter ein Basis-Toolset."},
+   {id:"cli_core",label:"HermesCLI",file:"cli.py",kind:"software",tenant:"profile",desc:"Interaktiver CLI-Orchestrator (~11k LOC). process_command(), load_cli_config()."},
+   {id:"state",label:"SessionDB",file:"hermes_state.py",kind:"data",tenant:"profile",desc:"SQLite-Session-Store mit FTS5-Suche."},
+   {id:"constants",label:"Profile Paths",file:"hermes_constants.py",kind:"software",tenant:"profile",desc:"get_hermes_home() / display_hermes_home() — profil-bewusste Pfade."},
+   {id:"logging",label:"Logging",file:"hermes_logging.py",kind:"software",tenant:"profile",desc:"agent.log / errors.log / gateway.log, profil-bewusst."},
+   {id:"batch",label:"Batch Runner",file:"batch_runner.py",kind:"software",tenant:"global",desc:"Parallele Batch-Verarbeitung."},
+  ]},
+ {id:"agent",label:"Agent Internals",color:"#38bdf8",kind:"software",tenant:"global",
+  desc:"Provider-Adapter, Memory, Caching, Kompression, Curator — die internen Maschinen hinter AIAgent.",
+  children:[
+   {id:"providers_ad",label:"Provider Adapters",file:"agent/",kind:"software",tenant:"global",desc:"API-Mode-Adapter (chat_completions, codex_responses, …)."},
+   {id:"mem_mgr",label:"Memory Manager",file:"agent/memory_manager.py",kind:"software",tenant:"profile",desc:"Orchestriert MemoryProvider; sync_turn(), prefetch(), shutdown()."},
+   {id:"mem_abc",label:"MemoryProvider ABC",file:"agent/memory_provider.py",kind:"software",tenant:"profile",desc:"Abstrakte Basis für Memory-Backends."},
+   {id:"ctx_engine",label:"Context Engine",file:"agent/context_engine.py",kind:"software",tenant:"global",desc:"Pluggable Kontext-Engines."},
+   {id:"compress",label:"Context Compression",file:"trajectory_compressor.py",kind:"logic",tenant:"global",desc:"Die EINZIGE erlaubte Mutation des Kontexts — bewahrt Prompt-Cache ansonsten strikt."},
+   {id:"cache",label:"Prompt Cache",file:"agent/",kind:"logic",tenant:"global",desc:"Per-Konversation-Caching ist heilig: byte-stabiler System-Prompt für die Lebensdauer einer Konversation."},
+   {id:"curator_core",label:"Curator",file:"agent/curator.py",kind:"logic",tenant:"profile",desc:"Skill-Lifecycle: trackt Nutzung, archiviert veraltete Agent-Skills (nie löschen)."},
+   {id:"aux",label:"Auxiliary Client",file:"agent/auxiliary_client.py",kind:"software",tenant:"global",desc:"Side-LLM-Arbeit (curator, vision, embedding, titel, session_search)."},
+   {id:"display",label:"Display / Spinner",file:"agent/display.py",kind:"software",tenant:"profile",desc:"KawaiiSpinner, Aktivitäts-Feed der Tool-Resultate."},
+   {id:"skillcmd",label:"Skill Commands",file:"agent/skill_commands.py",kind:"software",tenant:"profile",desc:"Skill-Slash-Commands als USER-Message injiziert (Cache-schonend)."},
+  ]},
+ {id:"tools",label:"Tools & Environments",color:"#22d3ee",kind:"software",tenant:"global",
+  desc:"Auto-entdeckte Tool-Implementierungen. Terminal-Backends als austauschbare Environments.",
+  children:[
+   {id:"registry",label:"Tool Registry",file:"tools/registry.py",kind:"software",tenant:"global",desc:"register() bei Import; Schema-Sammlung, Dispatch, Availability, Error-Wrapping."},
+   {id:"environments",label:"Terminal Backends",file:"tools/environments/",kind:"hardware",tenant:"global",desc:"Austauschbare Ausführungsumgebungen für das Terminal-Tool.",
+     children:[
+      {id:"env_local",label:"local",kind:"hardware",tenant:"global",desc:"Lokaler Prozess / Host-Shell."},
+      {id:"env_docker",label:"docker",kind:"hardware",tenant:"board",desc:"Container-isolierte Ausführung."},
+      {id:"env_ssh",label:"ssh",kind:"hardware",tenant:"board",desc:"Remote-Host über SSH."},
+      {id:"env_modal",label:"modal",kind:"hardware",tenant:"board",desc:"Modal-Cloud-Sandbox."},
+      {id:"env_daytona",label:"daytona",kind:"hardware",tenant:"board",desc:"Daytona-Dev-Environment."},
+      {id:"env_sing",label:"singularity",kind:"hardware",tenant:"board",desc:"Singularity/Apptainer-Container."},
+     ]},
+   {id:"delegate",label:"delegate_task",file:"tools/delegate_tool.py",kind:"logic",tenant:"global",desc:"Spawnt Subagent mit isoliertem Kontext+Terminal. Synchron; leaf/orchestrator-Rollen."},
+   {id:"kanban_t",label:"kanban_* tools",file:"tools/kanban_tools.py",kind:"software",tenant:"board",desc:"Worker-Toolset: kanban_show/complete/block/heartbeat/comment/create/link."},
+   {id:"todo_t",label:"todo",file:"tools/todo_tool.py",kind:"software",tenant:"global",desc:"Agent-Level-Tool, vor handle_function_call abgefangen."},
+   {id:"web_t",label:"web / browser",file:"tools/",kind:"external",tenant:"global",desc:"web_search, web_extract, browser_navigate."},
+   {id:"search_t",label:"search_files",file:"tools/",kind:"software",tenant:"global",desc:"Datei-/Inhaltssuche."},
+   {id:"vision_t",label:"vision_analyze",file:"tools/",kind:"external",tenant:"global",desc:"Bildanalyse via Auxiliary-LLM."},
+   {id:"cron_t",label:"cronjob",file:"tools/",kind:"software",tenant:"profile",desc:"Agent plant geplante Jobs."},
+   {id:"skillshub",label:"skills_hub",file:"tools/skills_hub.py",kind:"software",tenant:"profile",desc:"OptionalSkillSource-Adapter für install/load."},
+  ]},
+ {id:"surfaces",label:"Surfaces / Edges",color:"#4ade80",kind:"software",tenant:"profile",
+  desc:"Derselbe Agent-Kern über CLI, Gateway, TUI, Desktop, Dashboard, ACP.",
+  children:[
+   {id:"cli_s",label:"Classic CLI",file:"cli.py",kind:"software",tenant:"profile",desc:"Rich/prompt_toolkit, Skin-Engine, Slash-Command-Registry."},
+   {id:"gateway",label:"Gateway",file:"gateway/run.py",kind:"software",tenant:"profile",desc:"Messaging-Runner: run.py + session.py. Zwei Message-Guards, /stop /new /queue /approve."},
+   {id:"tui",label:"TUI (Ink)",file:"ui-tui/",kind:"software",tenant:"profile",desc:"React/Ink Terminal-UI. TS besitzt den Screen."},
+   {id:"tuigw",label:"tui_gateway",file:"tui_gateway/server.py",kind:"software",tenant:"profile",desc:"Python JSON-RPC-Backend für TUI; sessions, tools, model calls."},
+   {id:"desktop",label:"Desktop (Electron)",file:"apps/desktop/",kind:"software",tenant:"profile",desc:"Electron + React + nanostore; eigener Composer, spricht tui_gateway."},
+   {id:"dashboard",label:"Dashboard / PTY",file:"hermes_cli/web_server.py",kind:"software",tenant:"profile",desc:"Bettet echtes hermes --tui über PTY-Bridge ein; web/ ChatPage + xterm.js."},
+   {id:"acp",label:"ACP Adapter",file:"acp_adapter/",kind:"software",tenant:"profile",desc:"ACP-Server für VS Code / Zed / JetBrains."},
+   {id:"acpreg",label:"ACP Registry",file:"acp_registry/",kind:"software",tenant:"global",desc:"ACP-Registrierung."},
+  ]},
+ {id:"gateway_p",label:"Gateway Platforms",color:"#a78bfa",kind:"external",tenant:"profile",
+  desc:"~20 Plattform-Adapter; Token-Locks verhindern Credential-Kollision zwischen Profilen.",
+  children:[
+   {id:"telegram",label:"Telegram",file:"gateway/platforms/telegram.py",kind:"external",tenant:"profile",desc:"Kanonisches Token-Lock-Muster (acquire_scoped_lock)."},
+   {id:"discord",label:"Discord",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"Discord-Adapter (+ discord_admin Toolset)."},
+   {id:"slack",label:"Slack",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"/hermes Subcommand-Routing aus Registry."},
+   {id:"whatsapp",label:"WhatsApp",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"WhatsApp-Bridge."},
+   {id:"signal",label:"Signal",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"Signal-Adapter."},
+   {id:"matrix",label:"Matrix",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"Matrix-Adapter."},
+   {id:"mattermost",label:"Mattermost",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"Mattermost-Adapter."},
+   {id:"email",label:"Email",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"E-Mail-Kanal."},
+   {id:"sms",label:"SMS",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"SMS-Kanal."},
+   {id:"homeassistant",label:"Home Assistant",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"Service-gated homeassistant-Toolset (Token)."},
+   {id:"dingtalk",label:"DingTalk",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"DingTalk-Adapter."},
+   {id:"wecom",label:"WeCom",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"WeCom-Adapter."},
+   {id:"feishu",label:"Feishu",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"Feishu (+ feishu_doc/feishu_drive Toolsets)."},
+   {id:"qqbot",label:"QQ Bot",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"QQ-Bot-Adapter."},
+   {id:"bluebubbles",label:"BlueBubbles",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"iMessage über BlueBubbles."},
+   {id:"yuanbao",label:"Yuanbao",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"Yuanbao (+ yuanbao-Toolset)."},
+   {id:"webhook",label:"Webhook",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"Generischer Webhook-Eingang."},
+   {id:"apiserver",label:"API Server",file:"gateway/platforms/",kind:"external",tenant:"profile",desc:"HTTP-API-Plattform."},
+  ]},
+ {id:"plugins",label:"Plugins",color:"#f472b6",kind:"software",tenant:"global",
+  desc:"Erweiterung ohne Core-Anfassen. register(ctx): Hooks, Tools, CLI-Subcommands.",
+  children:[
+   {id:"pl_mem",label:"Memory Providers",file:"plugins/memory/",kind:"software",tenant:"profile",desc:"honcho, mem0, supermemory, byterover, hindsight, holographic, openviking, retaindb.",
+     children:[
+      {id:"m_honcho",label:"honcho",kind:"software",tenant:"profile",desc:"Honcho-Backend."},
+      {id:"m_mem0",label:"mem0",kind:"software",tenant:"profile",desc:"mem0-Backend."},
+      {id:"m_super",label:"supermemory",kind:"software",tenant:"profile",desc:"Supermemory-Backend."},
+      {id:"m_byte",label:"byterover",kind:"software",tenant:"profile",desc:"Byterover-Backend."},
+      {id:"m_hind",label:"hindsight",kind:"software",tenant:"profile",desc:"Hindsight-Backend."},
+      {id:"m_holo",label:"holographic",kind:"software",tenant:"profile",desc:"Holographic-Backend."},
+      {id:"m_ov",label:"openviking",kind:"software",tenant:"profile",desc:"OpenViking-Backend."},
+      {id:"m_retain",label:"retaindb",kind:"software",tenant:"profile",desc:"RetainDB-Backend."},
+     ]},
+   {id:"pl_prov",label:"Model Providers",file:"plugins/model-providers/",kind:"software",tenant:"global",desc:"Lazy-Discovery; register_provider(ProviderProfile) bei Load."},
+   {id:"pl_ctx",label:"Context Engine",file:"plugins/context_engine/",kind:"software",tenant:"global",desc:"Kontext-Engine-Plugins."},
+   {id:"pl_kanban",label:"Kanban",file:"plugins/kanban/",kind:"software",tenant:"board",desc:"Dispatcher + Worker + Dashboard-UI + systemd-Service."},
+   {id:"pl_obs",label:"Observability",file:"plugins/observability/",kind:"software",tenant:"global",desc:"Metriken / Traces / Logs."},
+   {id:"pl_img",label:"Image Gen",file:"plugins/image_gen/",kind:"external",tenant:"global",desc:"Bildgenerierungs-Provider."},
+   {id:"pl_vid",label:"Video Gen",file:"plugins/video_gen/",kind:"external",tenant:"global",desc:"Videogenerierung."},
+   {id:"pl_ach",label:"Achievements",file:"plugins/hermes-achievements/",kind:"software",tenant:"profile",desc:"Gamifiziertes Achievement-Tracking."},
+   {id:"pl_spotify",label:"Spotify",file:"plugins/spotify/",kind:"external",tenant:"profile",desc:"Spotify-Steuerung (spotify-Toolset)."},
+   {id:"pl_meet",label:"Google Meet",file:"plugins/google_meet/",kind:"external",tenant:"profile",desc:"Google-Meet-Integration."},
+   {id:"pl_disk",label:"Disk Cleanup",file:"plugins/disk-cleanup/",kind:"software",tenant:"profile",desc:"Speicher-Aufräum-Plugin."},
+   {id:"pl_browser",label:"Browser",file:"plugins/browser/",kind:"software",tenant:"global",desc:"Browser-Plugin."},
+   {id:"pl_web",label:"Web",file:"plugins/web/",kind:"software",tenant:"global",desc:"Web-Plugin."},
+   {id:"pl_sec",label:"Security Guidance",file:"plugins/security-guidance/",kind:"logic",tenant:"global",desc:"Sicherheits-Leitplanken."},
+   {id:"pl_teams",label:"Teams Pipeline",file:"plugins/teams_pipeline/",kind:"software",tenant:"board",desc:"Teams-Pipeline."},
+  ]},
+ {id:"providers",label:"Model Providers",color:"#fbbf24",kind:"external",tenant:"global",
+  desc:"Inferenz-Backends als Plugins; last-writer-wins Override. Prompt-Caching am API-Rand.",
+  children:[
+   {id:"p_anthropic",label:"Anthropic (Claude)",file:"plugins/model-providers/anthropic/",kind:"external",tenant:"global",desc:"Claude-Familie (Opus/Sonnet/Haiku, Fable). Standard für leistungsstärkste Modelle."},
+   {id:"p_openrouter",label:"OpenRouter",file:"plugins/model-providers/openrouter/",kind:"external",tenant:"global",desc:"OpenRouter-Aggregator."},
+   {id:"p_gmi",label:"GMI",file:"plugins/model-providers/gmi/",kind:"external",tenant:"global",desc:"GMI-Backend."},
+   {id:"p_deepseek",label:"DeepSeek",file:"plugins/model-providers/deepseek/",kind:"external",tenant:"global",desc:"DeepSeek-Backend."},
+   {id:"p_nvidia",label:"NVIDIA",file:"plugins/model-providers/nvidia/",kind:"external",tenant:"global",desc:"NVIDIA-Inferenz."},
+   {id:"p_legacy",label:"providers/ (legacy)",file:"providers/",kind:"external",tenant:"global",desc:"Back-Compat-Provider-Pfad."},
+  ]},
+ {id:"skills",label:"Skills",color:"#34d399",kind:"software",tenant:"profile",
+  desc:"Built-in (skills/) standardmäßig ladbar; optional-skills/ explizit installiert.",
+  children:[
+   {id:"sk_github",label:"github",file:"skills/github/",kind:"software",tenant:"profile",desc:"GitHub-Skills."},
+   {id:"sk_mlops",label:"mlops",file:"skills/mlops/",kind:"software",tenant:"profile",desc:"MLOps-Skills (Training, Eval, …)."},
+   {id:"sk_creative",label:"creative",file:"skills/creative/",kind:"software",tenant:"profile",desc:"p5js, manim, blender, comfyui, infographics …"},
+   {id:"sk_prod",label:"productivity",file:"skills/productivity/",kind:"software",tenant:"profile",desc:"PowerPoint, Office, …"},
+   {id:"sk_research",label:"research",file:"skills/research/",kind:"software",tenant:"profile",desc:"Recherche-Skills."},
+   {id:"sk_devops",label:"devops",file:"skills/devops/",kind:"software",tenant:"profile",desc:"Kanban-Worker, CLI, …"},
+   {id:"sk_data",label:"data-science",file:"skills/data-science/",kind:"software",tenant:"profile",desc:"Jupyter-Live-Kernel u.a."},
+   {id:"sk_media",label:"media",file:"skills/media/",kind:"software",tenant:"profile",desc:"Medien-Skills."},
+   {id:"sk_opt",label:"optional-skills/",file:"optional-skills/",kind:"software",tenant:"profile",desc:"Schwer/niche: blockchain, security, health, web-development, mlops, migration …"},
+   {id:"sk_curator",label:"usage telemetry",file:"tools/skill_usage.py",kind:"data",tenant:"profile",desc:".usage.json — use/view/patch counts, state, pinned."},
+  ]},
+ {id:"subsystems",label:"Subsystems",color:"#fb923c",kind:"logic",tenant:"global",
+  desc:"Querschnitts-Maschinen: Delegation, Curator, Cron, Kanban, Skins, Memory, Profile.",
+  children:[
+   {id:"sub_deleg",label:"Delegation",file:"tools/delegate_tool.py",kind:"logic",tenant:"global",desc:"Parent wartet auf Child-Summary; max_concurrent_children, max_spawn_depth."},
+   {id:"sub_cur",label:"Curator",file:"hermes_cli/curator.py",kind:"logic",tenant:"profile",desc:"hermes curator status/run/pin/archive/restore … nur created_by:agent Skills."},
+   {id:"sub_cron",label:"Cron",file:"cron/scheduler.py",kind:"logic",tenant:"profile",desc:"jobs.py + scheduler.py Tick-Loop; 3-Min-Hard-Interrupt; .tick.lock."},
+   {id:"sub_kanban",label:"Kanban Dispatcher",file:"hermes_cli/kanban.py",kind:"logic",tenant:"board",desc:"Reclaims stale claims, promoted ready tasks, spawnt Profile. Läuft im Gateway."},
+   {id:"sub_skin",label:"Skin Engine",file:"hermes_cli/skin_engine.py",kind:"software",tenant:"profile",desc:"Datengetriebenes CLI-Theming; default/ares/mono/slate + User-YAML."},
+   {id:"sub_profiles",label:"Profiles",file:"hermes_cli/main.py",kind:"logic",tenant:"profile",desc:"Mehrere isolierte Instanzen; _apply_profile_override() setzt HERMES_HOME vor Imports."},
+   {id:"sub_acp",label:"Slash Registry",file:"hermes_cli/commands.py",kind:"software",tenant:"global",desc:"Zentrale COMMAND_REGISTRY — CLI, Gateway, Telegram-Menu, Slack-Map, Autocomplete leiten ab."},
+  ]},
+ {id:"statez",label:"Config & State",color:"#94a3b8",kind:"data",tenant:"profile",
+  desc:"Profil-isolierte Persistenz unter HERMES_HOME. .env nur Secrets; config.yaml alles andere.",
+  children:[
+   {id:"cfg",label:"config.yaml",file:"~/.hermes/config.yaml",kind:"data",tenant:"profile",desc:"Alle Verhaltens-Settings; DEFAULT_CONFIG in hermes_cli/config.py."},
+   {id:"env",label:".env (Secrets)",file:"~/.hermes/.env",kind:"data",tenant:"profile",desc:"NUR API-Keys/Tokens/Passwörter. OPTIONAL_ENV_VARS."},
+   {id:"sessdb",label:"Session DB",file:"~/.hermes/ (SQLite)",kind:"data",tenant:"profile",desc:"SessionDB mit FTS5-Suche."},
+   {id:"logs",label:"Logs",file:"~/.hermes/logs/",kind:"data",tenant:"profile",desc:"agent.log / errors.log / gateway.log."},
+   {id:"cronstore",label:"Cron Store",file:"~/.hermes/cron/",kind:"data",tenant:"profile",desc:"Job-Store + .tick.lock."},
+   {id:"kanbandb",label:"Kanban DB",file:"SQLite Board",kind:"data",tenant:"board",desc:"Durable Board; HERMES_KANBAN_BOARD harte Grenze."},
+   {id:"skillstore",label:"Skills Store",file:"~/.hermes/skills/",kind:"data",tenant:"profile",desc:"Installierte Skills + .archive/ + .usage.json."},
+  ]},
+ {id:"runtime",label:"Runtime / Hardware",color:"#f87171",kind:"hardware",tenant:"global",
+  desc:"Physische & virtualisierte Ausführungsschicht — vom Host bis zum VR-Headset.",
+  children:[
+   {id:"host",label:"Host Machine",kind:"hardware",tenant:"global",desc:"Lokale Maschine (Linux/macOS/Windows)."},
+   {id:"pty",label:"PTY Bridge",file:"hermes_cli/pty_bridge.py",kind:"hardware",tenant:"profile",desc:"ptyprocess POSIX-PTY; speist Dashboard-Terminal über WebSocket."},
+   {id:"docker_rt",label:"Docker",file:"docker-compose.yml",kind:"hardware",tenant:"board",desc:"Container-Runtime."},
+   {id:"ssh_rt",label:"SSH Remote",kind:"hardware",tenant:"board",desc:"Entfernter Host."},
+   {id:"cloud_rt",label:"Cloud Sandbox",kind:"hardware",tenant:"board",desc:"Modal / Daytona / Singularity."},
+   {id:"gpu",label:"GPU",kind:"hardware",tenant:"board",desc:"Beschleuniger für MLOps-Skills."},
+   {id:"browser_rt",label:"Browser Engine",kind:"hardware",tenant:"profile",desc:"xterm.js WebGL-Renderer / browser_navigate."},
+   {id:"vr",label:"VR Headset (WebXR)",kind:"hardware",tenant:"profile",desc:"Diese holographische Projektion — immersive-vr."},
+   {id:"netz",label:"Network / APIs",kind:"hardware",tenant:"global",desc:"Outbound zu Provider- & Plattform-APIs."},
+  ]},
+];
+
+/* directed data streams (flows) — paths reference node ids */
+const FLOWS = [
+ {id:"f_msg",name:"Eingehende Nachricht",color:"#a78bfa",
+  path:["telegram","gateway","run_agent","model_tools","registry","environments","run_agent","gateway","telegram"],
+  desc:"User → Plattform → Gateway → AIAgent-Loop → Tool-Dispatch → Environment → Antwort zurück über die Plattform."},
+ {id:"f_cli",name:"CLI-Schleife",color:"#4ade80",
+  path:["cli_s","cli_core","run_agent","model_tools","providers","p_anthropic"],
+  desc:"User (CLI) → HermesCLI → AIAgent → Tool-Orchestrator → Provider-Plugin → Claude."},
+ {id:"f_cron",name:"Geplanter Job (Cron)",color:"#fb923c",
+  path:["sub_cron","cronstore","run_agent","providers","gateway"],
+  desc:"Scheduler-Tick → Job-Store → AIAgent (skip_memory) → Provider → Auslieferung. Eigene Cron-Session."},
+ {id:"f_deleg",name:"Delegation (Subagent)",color:"#22d3ee",
+  path:["run_agent","delegate","environments","run_agent"],
+  desc:"Parent-AIAgent → delegate_task → Subagent mit isoliertem Terminal → Summary zurück. Synchron."},
+ {id:"f_mem",name:"Memory-Sync",color:"#38bdf8",
+  path:["run_agent","mem_mgr","mem_abc","pl_mem","m_honcho"],
+  desc:"Pro Turn: AIAgent → Memory Manager → Provider-ABC → Memory-Plugin → Backend."},
+ {id:"f_kanban",name:"Kanban-Dispatch",color:"#f472b6",
+  path:["sub_kanban","kanbandb","run_agent","kanban_t","kanbandb"],
+  desc:"Dispatcher reclaim/promote/claim → spawnt Worker-AIAgent → kanban_*-Tools → Board-DB. Board = harte Grenze."},
+ {id:"f_tui",name:"TUI JSON-RPC",color:"#34d399",
+  path:["tui","tuigw","run_agent","model_tools","tuigw","tui"],
+  desc:"Ink (Node) → JSON-RPC über stdio → tui_gateway (Python) → AIAgent → Events zurück nach Ink."},
+ {id:"f_prov",name:"Provider-Call",color:"#fbbf24",
+  path:["run_agent","cache","providers_ad","providers","p_anthropic","netz"],
+  desc:"AIAgent-Loop → Prompt-Cache-Prefix → Provider-Adapter → Provider-Plugin → externe API über Netzwerk."},
+ {id:"f_dash",name:"Dashboard / PTY",color:"#00e5ff",
+  path:["browser_rt","dashboard","pty","tui","tuigw","run_agent"],
+  desc:"Browser (xterm.js) → Dashboard-Server → PTY-Bridge → echtes hermes --tui → tui_gateway → AIAgent."},
+];
+
+/* extra structural links (directed: from depends-on→provides) for what-if reachability */
+const LINKS = [
+ ["model_tools","registry"],["registry","environments"],["run_agent","model_tools"],
+ ["run_agent","cache"],["run_agent","compress"],["run_agent","mem_mgr"],
+ ["cli_core","run_agent"],["gateway","run_agent"],["tuigw","run_agent"],
+ ["desktop","tuigw"],["dashboard","pty"],["pty","tui"],["acp","run_agent"],
+ ["telegram","gateway"],["discord","gateway"],["slack","gateway"],["whatsapp","gateway"],
+ ["signal","gateway"],["matrix","gateway"],["mattermost","gateway"],["email","gateway"],
+ ["sms","gateway"],["homeassistant","gateway"],["dingtalk","gateway"],["wecom","gateway"],
+ ["feishu","gateway"],["qqbot","gateway"],["bluebubbles","gateway"],["yuanbao","gateway"],
+ ["webhook","gateway"],["apiserver","gateway"],
+ ["providers_ad","providers"],["providers","p_anthropic"],["providers","netz"],
+ ["mem_mgr","mem_abc"],["mem_abc","pl_mem"],
+ ["sub_kanban","kanbandb"],["kanban_t","kanbandb"],["sub_kanban","run_agent"],
+ ["sub_cron","cronstore"],["sub_cron","run_agent"],["delegate","run_agent"],
+ ["sub_profiles","constants"],["constants","cfg"],["cli_core","cfg"],["gateway","cfg"],
+ ["run_agent","state"],["curator_core","skillstore"],["sub_cur","skillstore"],
+ ["environments","env_docker"],["env_docker","docker_rt"],["env_ssh","ssh_rt"],
+ ["env_modal","cloud_rt"],["env_daytona","cloud_rt"],["env_sing","cloud_rt"],
+ ["env_local","host"],["browser_rt","dashboard"],["vr","browser_rt"],
+ ["sub_acp","cli_core"],["sub_acp","gateway"],["sub_skin","cli_s"],
+ ["skillshub","sk_opt"],["skillcmd","skills"],
+];
+
+/* ============================================================
+   BUILD GRAPH
+   ============================================================ */
+const NODES = new Map();      // id -> node record
+const ALLZONES = [];
+function reg(node, parent, zone, lod){
+  node.parent = parent; node.zone = zone; node.lod = lod;
+  node.children = node.children || [];
+  NODES.set(node.id, node);
+}
+ZONES.forEach(z=>{
+  reg(z,null,z.id,1); ALLZONES.push(z);
+  (z.children||[]).forEach(c=>{
+    reg(c,z.id,z.id,2);
+    (c.children||[]).forEach(m=> reg(m,c.id,z.id,3));
+  });
+});
+
+/* ============================================================
+   THREE SETUP
+   ============================================================ */
+const app=document.getElementById('app');
+const scene=new THREE.Scene();
+scene.fog=new THREE.FogExp2(0x02060a,0.012);
+const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,500);
+camera.position.set(0,8,46);
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled=true;
+app.appendChild(renderer.domElement);
+document.getElementById('vrslot').appendChild(VRButton.createButton(renderer));
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true; controls.dampingFactor=.07;
+controls.minDistance=6; controls.maxDistance=140; controls.autoRotateSpeed=.5;
+
+const composer=new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene,camera));
+const bloom=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),0.9,0.6,0.08);
+composer.addPass(bloom);
+
+/* lighting */
+scene.add(new THREE.AmbientLight(0x224455,1.2));
+const key=new THREE.PointLight(0x00e5ff,1.4,300); key.position.set(20,30,30); scene.add(key);
+const rim=new THREE.PointLight(0xa78bfa,0.8,300); rim.position.set(-30,-10,-20); scene.add(rim);
+
+/* starfield */
+(function stars(){
+  const g=new THREE.BufferGeometry(),n=1400,p=new Float32Array(n*3);
+  for(let i=0;i<n*3;i++)p[i]=(Math.random()-.5)*360;
+  g.setAttribute('position',new THREE.BufferAttribute(p,3));
+  scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x2b6577,size:.45,transparent:true,opacity:.7})));
+})();
+
+/* floor grid */
+const grid=new THREE.GridHelper(220,60,0x0a4a55,0x06303a);
+grid.position.y=-26; grid.material.transparent=true; grid.material.opacity=.35; scene.add(grid);
+
+/* containment sphere */
+const cont=new THREE.Mesh(new THREE.IcosahedronGeometry(34,2),
+  new THREE.MeshBasicMaterial({color:0x0a4a55,wireframe:true,transparent:true,opacity:.06}));
+scene.add(cont);
+
+/* ============================================================
+   LAYOUT  (molecular / orbital, deterministic)
+   ============================================================ */
+function fib(i,n,r){ const off=2/n, y=i*off-1+off/2, rr=Math.sqrt(1-y*y), phi=i*Math.PI*(3-Math.sqrt(5));
+  return new THREE.Vector3(Math.cos(phi)*rr*r, y*r, Math.sin(phi)*rr*r); }
+
+const ZR=17;
+ALLZONES.forEach((z,i)=>{
+  z.pos=fib(i,ALLZONES.length,ZR);
+  const comps=z.children||[]; const cr=4+comps.length*0.22;
+  comps.forEach((c,j)=>{
+    c.pos=z.pos.clone().add(fib(j,Math.max(comps.length,3),cr));
+    const mods=c.children||[]; const mr=1.5+mods.length*0.12;
+    mods.forEach((m,k)=> m.pos=c.pos.clone().add(fib(k,Math.max(mods.length,3),mr)));
+  });
+});
+
+/* ============================================================
+   NODE MESHES + LABELS
+   ============================================================ */
+const COLOR=id=>new THREE.Color(NODES.get(NODES.get(id).zone).color);
+const pickable=[];
+const nodeGroup=new THREE.Group(); scene.add(nodeGroup);
+const labelGroup=new THREE.Group(); scene.add(labelGroup);
+
+function makeLabel(text,hex){
+  const c=document.createElement('canvas'),s=2; c.width=256*s; c.height=64*s;
+  const x=c.getContext('2d'); x.scale(s,s);
+  x.font='600 22px ui-monospace,Menlo,monospace'; x.textBaseline='middle';
+  const w=Math.min(x.measureText(text).width+22,250);
+  x.fillStyle='rgba(2,12,18,.66)'; x.strokeStyle=hex; x.lineWidth=1.5;
+  roundRect(x,4,16,w,32,6); x.fill(); x.stroke();
+  x.fillStyle=hex; x.shadowColor=hex; x.shadowBlur=8; x.fillText(text,14,33);
+  const t=new THREE.CanvasTexture(c); t.anisotropy=4;
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthWrite:false}));
+  sp.scale.set(7.2,1.8,1); sp.userData.w=w; return sp;
+}
+function roundRect(x,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);
+  x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath();}
+
+NODES.forEach(node=>{
+  const col=node.lod===1?new THREE.Color(node.color):COLOR(node.id);
+  const r=node.lod===1?1.25:node.lod===2?0.52:0.3;
+  const geo=node.lod===1?new THREE.IcosahedronGeometry(r,1)
+        :node.lod===2?new THREE.IcosahedronGeometry(r,0)
+        :new THREE.OctahedronGeometry(r,0);
+  const core=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({
+     color:col,emissive:col,emissiveIntensity:node.lod===1?1.5:0.9,
+     metalness:.3,roughness:.4,transparent:true,opacity:.95}));
+  const wire=new THREE.Mesh(geo.clone(),new THREE.MeshBasicMaterial({
+     color:col,wireframe:true,transparent:true,opacity:node.lod===1?.5:.35}));
+  wire.scale.setScalar(1.35);
+  const g=new THREE.Group(); g.add(core); g.add(wire); g.position.copy(node.pos);
+  g.userData.node=node; g.userData.core=core; g.userData.wire=wire; g.userData.baseColor=col.clone();
+  nodeGroup.add(g); node.mesh=g; pickable.push(core); core.userData.group=g;
+
+  const lab=makeLabel(node.label, '#'+col.getHexString());
+  lab.position.copy(node.pos).add(new THREE.Vector3(0,node.lod===1?2.1:node.lod===2?1.0:.7,0));
+  lab.userData.node=node; labelGroup.add(lab); node.label3=lab;
+});
+
+/* ============================================================
+   EDGES  (bonds + flow segments)
+   ============================================================ */
+const edges=[]; // {a,b,line,kind:'bond'|'flow'|'link', flowId?}
+function addEdge(aId,bId,kind,col,flowId){
+  const A=NODES.get(aId),B=NODES.get(bId); if(!A||!B)return;
+  const g=new THREE.BufferGeometry().setFromPoints([A.pos,B.pos]);
+  const m=new THREE.LineBasicMaterial({color:col,transparent:true,
+    opacity:kind==='bond'?.18:kind==='link'?.10:.0});
+  const line=new THREE.Line(g,m); scene.add(line);
+  edges.push({a:aId,b:bId,line,kind,flowId,col:new THREE.Color(col)});
+}
+/* hierarchy bonds */
+NODES.forEach(n=>{ if(n.parent) addEdge(n.parent,n.id,'bond','#1f6b7a'); });
+/* structural links */
+LINKS.forEach(([a,b])=>{ if(NODES.has(a)&&NODES.has(b)) addEdge(a,b,'link','#2b6577'); });
+/* flow edges */
+FLOWS.forEach(f=>{ for(let i=0;i<f.path.length-1;i++) addEdge(f.path[i],f.path[i+1],'flow',f.color,f.id); });
+
+/* flow particles */
+const flowParticles=[]; // {flowId, mesh, pts, t, speed, col}
+FLOWS.forEach(f=>{
+  const pts=f.path.map(id=>NODES.get(id)?.pos).filter(Boolean);
+  const curve=new THREE.CatmullRomCurve3(pts);
+  for(let k=0;k<3;k++){
+    const m=new THREE.Mesh(new THREE.SphereGeometry(.28,12,12),
+      new THREE.MeshBasicMaterial({color:f.color,transparent:true,opacity:0}));
+    scene.add(m);
+    flowParticles.push({flowId:f.id,mesh:m,curve,t:k/3,speed:0.04+Math.random()*0.02,col:new THREE.Color(f.color)});
+  }
+});
+
+/* directed adjacency for what-if */
+const ADJ=new Map();
+function link(a,b){ if(!ADJ.has(a))ADJ.set(a,new Set()); ADJ.get(a).add(b); }
+LINKS.forEach(([a,b])=>{ if(NODES.has(a)&&NODES.has(b)) link(a,b); });
+FLOWS.forEach(f=>{ for(let i=0;i<f.path.length-1;i++) link(f.path[i],f.path[i+1]); });
+
+/* ============================================================
+   STATE
+   ============================================================ */
+const ST={
+  mode:'explore', lod:2,
+  zones:new Set(ALLZONES.map(z=>z.id)),
+  kinds:new Set(['software','hardware','data','external','logic']),
+  tenant:'all',
+  activeFlows:new Set(),
+  selected:null, offline:new Set(), impacted:new Set(),
+  autoRotate:false,
+};
+const KIND_LABEL={software:'Software',hardware:'Hardware',data:'Daten',external:'Extern / API',logic:'Logik'};
+const KIND_COLOR={software:'#22d3ee',hardware:'#f87171',data:'#94a3b8',external:'#fbbf24',logic:'#fb923c'};
+
+function nodeVisible(n){
+  if(n.lod>ST.lod) return false;
+  if(!ST.zones.has(n.zone)) return false;
+  if(!ST.kinds.has(n.kind)) return false;
+  if(ST.tenant!=='all' && n.tenant!==ST.tenant) return false;
+  return true;
+}
+
+function refresh(){
+  // nodes + labels
+  NODES.forEach(n=>{
+    const vis=nodeVisible(n);
+    n.mesh.visible=vis;
+    n.label3.visible=vis && (n.lod<=2 || ST.lod===3);
+    const core=n.mesh.userData.core, wire=n.mesh.userData.wire;
+    let em=n.lod===1?1.5:0.9, op=.95, scale=1;
+    // mode-specific tinting
+    if(ST.mode==='whatif'){
+      if(ST.offline.has(n.id)){ core.material.color.set(0x223); core.material.emissive.set(0x112); em=.1; }
+      else if(ST.impacted.has(n.id)){ core.material.color.set(0xff3b5c); core.material.emissive.set(0xff3b5c); em=1.6; scale=1.15; }
+      else { core.material.color.copy(n.mesh.userData.baseColor); core.material.emissive.copy(n.mesh.userData.baseColor);
+             if(ST.offline.size) { em=.25; op=.4; } }
+    } else if(ST.mode==='trace' && ST.selected){
+      const inFlow=tracedNodes.has(n.id);
+      core.material.color.copy(n.mesh.userData.baseColor); core.material.emissive.copy(n.mesh.userData.baseColor);
+      if(inFlow){ em=1.6; scale=1.12; } else { em=.2; op=.35; }
+    } else {
+      core.material.color.copy(n.mesh.userData.baseColor); core.material.emissive.copy(n.mesh.userData.baseColor);
+    }
+    if(ST.selected===n.id){ scale=1.3; em=2; }
+    core.material.emissiveIntensity=em; core.material.opacity=op;
+    n.mesh.userData.targetScale=scale;
+    n.label3.material.opacity = (op<.5)?.3:1;
+  });
+  // edges
+  edges.forEach(e=>{
+    const A=NODES.get(e.a),B=NODES.get(e.b);
+    const vis=nodeVisible(A)&&nodeVisible(B);
+    let op=0;
+    if(vis){
+      if(e.kind==='bond') op=.16;
+      else if(e.kind==='link') op=.09;
+      if(e.kind==='flow'){
+        op = ST.activeFlows.has(e.flowId) ? .9 : (ST.activeFlows.size? .0 : .12);
+      }
+      if(ST.mode==='trace'&&ST.selected){
+        const on=tracedEdges.has(e); op = on? .9 : op*.25;
+      }
+      if(ST.mode==='whatif'&&ST.offline.size){
+        const broken=ST.impacted.has(e.b)||ST.offline.has(e.a)||ST.offline.has(e.b);
+        op = broken? .8 : op*.3;
+        if(broken) e.line.material.color.set(0xff3b5c); else e.line.material.color.copy(e.col);
+      } else e.line.material.color.copy(e.col);
+    }
+    e.line.material.opacity=op; e.line.visible=op>0.001;
+  });
+  // particles
+  flowParticles.forEach(p=>{
+    const active = ST.activeFlows.has(p.flowId) || (ST.mode==='trace'&&ST.selected&&tracedFlows.has(p.flowId));
+    p.mesh.material.opacity=active?.95:0; p.mesh.visible=active;
+  });
+  updateStats();
+}
+
+/* trace computation */
+let tracedNodes=new Set(), tracedEdges=new Set(), tracedFlows=new Set();
+function computeTrace(){
+  tracedNodes=new Set(); tracedEdges=new Set(); tracedFlows=new Set();
+  if(!ST.selected) return;
+  FLOWS.forEach(f=>{
+    if(f.path.includes(ST.selected)){
+      tracedFlows.add(f.id);
+      f.path.forEach(id=>tracedNodes.add(id));
+    }
+  });
+  edges.forEach(e=>{ if(e.kind==='flow'&&tracedFlows.has(e.flowId)) tracedEdges.add(e); });
+  // also direct links
+  edges.forEach(e=>{ if((e.a===ST.selected||e.b===ST.selected)){ tracedEdges.add(e); tracedNodes.add(e.a); tracedNodes.add(e.b);} });
+  tracedNodes.add(ST.selected);
+}
+/* what-if reachability (downstream of offline) */
+function computeImpact(){
+  ST.impacted=new Set();
+  const q=[...ST.offline]; const seen=new Set(ST.offline);
+  while(q.length){ const cur=q.shift(); (ADJ.get(cur)||[]).forEach(nx=>{ if(!seen.has(nx)){ seen.add(nx); ST.impacted.add(nx); q.push(nx);} }); }
+}
+
+/* ============================================================
+   INTERACTION
+   ============================================================ */
+const ray=new THREE.Raycaster(); const mouse=new THREE.Vector2();
+let hovered=null;
+function pointer(e){ mouse.x=(e.clientX/innerWidth)*2-1; mouse.y=-(e.clientY/innerHeight)*2+1; }
+renderer.domElement.addEventListener('pointermove',e=>{ pointer(e); });
+renderer.domElement.addEventListener('click',e=>{
+  pointer(e); ray.setFromCamera(mouse,camera);
+  const hits=ray.intersectObjects(pickable.filter(p=>p.userData.group.visible),false);
+  if(hits.length){
+    const n=hits[0].object.userData.group.userData.node;
+    onPick(n);
+  }
+});
+function onPick(n){
+  if(ST.mode==='whatif'){
+    if(ST.offline.has(n.id)) ST.offline.delete(n.id); else ST.offline.add(n.id);
+    computeImpact();
+  } else {
+    ST.selected=n.id; computeTrace();
+  }
+  showInspector(n); refresh();
+}
+
+/* XR controllers */
+const xrRays=[];
+for(let i=0;i<2;i++){
+  const ctl=renderer.xr.getController(i); scene.add(ctl);
+  const ln=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]),
+    new THREE.LineBasicMaterial({color:0x00e5ff}));
+  ln.scale.z=30; ctl.add(ln);
+  ctl.addEventListener('selectstart',()=>{
+    const tmp=new THREE.Matrix4().identity().extractRotation(ctl.matrixWorld);
+    ray.ray.origin.setFromMatrixPosition(ctl.matrixWorld);
+    ray.ray.direction.set(0,0,-1).applyMatrix4(tmp);
+    const hits=ray.intersectObjects(pickable.filter(p=>p.userData.group.visible),false);
+    if(hits.length) onPick(hits[0].object.userData.group.userData.node);
+  });
+  xrRays.push(ctl);
+}
+
+/* ============================================================
+   UI WIRING
+   ============================================================ */
+function showInspector(n){
+  const z=NODES.get(n.zone);
+  const el=document.getElementById('inspect');
+  el.innerHTML=`<div class="nm">${n.label}</div>
+    <div class="meta">ZONE · ${z.label}</div>
+    <div class="meta">LOD ${n.lod} · ${n.lod===1?'Zone':n.lod===2?'Komponente':'Modul'}</div>
+    <div>
+      <span class="tag" style="color:${KIND_COLOR[n.kind]};border-color:${KIND_COLOR[n.kind]}">${KIND_LABEL[n.kind]}</span>
+      <span class="tag">Tenant: ${n.tenant}</span>
+    </div>
+    <div class="desc">${n.desc||''}</div>
+    ${n.file?`<div class="file">▸ ${n.file}</div>`:''}
+    ${ST.mode==='whatif'?`<div class="meta" style="margin-top:8px;color:#ff7b91">${ST.offline.has(n.id)?'⚠ OFFLINE — '+ST.impacted.size+' Knoten betroffen':'Klicken schaltet Knoten ab'}</div>`:''}`;
+}
+
+const zf=document.getElementById('zoneFilters');
+ALLZONES.forEach(z=>{
+  const row=document.createElement('div'); row.className='row';
+  row.innerHTML=`<label><input type="checkbox" checked data-z="${z.id}"><span class="dot" style="color:${z.color};background:${z.color}"></span>${z.label}</label>`;
+  zf.appendChild(row);
+});
+zf.addEventListener('change',e=>{ const id=e.target.dataset.z; if(!id)return;
+  e.target.checked?ST.zones.add(id):ST.zones.delete(id); refresh(); });
+
+const kf=document.getElementById('kindFilters');
+Object.keys(KIND_LABEL).forEach(k=>{
+  const row=document.createElement('div'); row.className='row';
+  row.innerHTML=`<label><input type="checkbox" checked data-k="${k}"><span class="dot" style="color:${KIND_COLOR[k]};background:${KIND_COLOR[k]}"></span>${KIND_LABEL[k]}</label>`;
+  kf.appendChild(row);
+});
+kf.addEventListener('change',e=>{ const k=e.target.dataset.k; if(!k)return;
+  e.target.checked?ST.kinds.add(k):ST.kinds.delete(k); refresh(); });
+
+document.getElementById('tenant').addEventListener('change',e=>{ ST.tenant=e.target.value; refresh(); });
+
+const LODL=['','1 — Zonen','2 — Komponenten','3 — Module (alles)'];
+document.getElementById('lod').addEventListener('input',e=>{
+  ST.lod=+e.target.value; document.getElementById('lodlbl').textContent=LODL[ST.lod]; refresh(); });
+
+document.getElementById('modeSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  ST.mode=b.dataset.mode; ST.selected=null; ST.offline.clear(); ST.impacted.clear(); ST.activeFlows.clear();
+  document.querySelectorAll('.flowbtn').forEach(x=>x.classList.remove('on'));
+  const hints={explore:'Klicke einen Knoten zum Inspizieren.',
+    trace:'Klicke einen Knoten — alle Datenströme & Verbindungen, die ihn berühren, leuchten auf.',
+    whatif:'Klicke Knoten, um sie „abzuschalten“. Alle stromabwärts betroffenen Komponenten färben sich rot.'};
+  document.getElementById('modehint').textContent=hints[ST.mode];
+  computeTrace(); refresh();
+});
+
+const fl=document.getElementById('flowList');
+FLOWS.forEach(f=>{
+  const b=document.createElement('button'); b.className='flowbtn'; b.dataset.f=f.id;
+  b.innerHTML=`<span class="flowbar" style="color:${f.color};background:${f.color}"></span><span style="flex:1">${f.name}</span>`;
+  b.title=f.desc; fl.appendChild(b);
+});
+fl.addEventListener('click',e=>{
+  const b=e.target.closest('.flowbtn'); if(!b)return;
+  const id=b.dataset.f;
+  if(ST.activeFlows.has(id)){ ST.activeFlows.delete(id); b.classList.remove('on'); }
+  else { ST.activeFlows.add(id); b.classList.add('on');
+    const f=FLOWS.find(x=>x.id===id); document.getElementById('modehint').textContent=f.desc; }
+  refresh();
+});
+
+document.getElementById('reset').onclick=()=>{ camera.position.set(0,8,46); controls.target.set(0,0,0); };
+document.getElementById('spin').onclick=()=>{ ST.autoRotate=!ST.autoRotate; controls.autoRotate=ST.autoRotate; };
+
+addEventListener('keydown',e=>{
+  if(e.key>='1'&&e.key<='3'){ ST.lod=+e.key; document.getElementById('lod').value=e.key;
+    document.getElementById('lodlbl').textContent=LODL[ST.lod]; refresh(); }
+  if(e.key==='r'||e.key==='R') document.getElementById('reset').click();
+});
+
+/* legend */
+const lg=document.getElementById('legend');
+ALLZONES.forEach(z=>{ const d=document.createElement('div'); d.className='li';
+  d.innerHTML=`<span class="dot" style="color:${z.color};background:${z.color}"></span>${z.label}`; lg.appendChild(d); });
+
+function updateStats(){
+  let vn=0; NODES.forEach(n=>{ if(n.mesh.visible)vn++; });
+  document.getElementById('stats').innerHTML=
+    `KNOTEN ${vn}/${NODES.size}<br>ZONEN ${ST.zones.size}/${ALLZONES.length}`+
+    (ST.mode==='whatif'&&ST.offline.size?`<br><span style="color:#ff7b91">OFFLINE ${ST.offline.size} · BETROFFEN ${ST.impacted.size}</span>`:'')+
+    (ST.activeFlows.size?`<br><span style="color:#7fe">STRÖME ${ST.activeFlows.size}</span>`:'');
+}
+
+/* ============================================================
+   ANIMATE
+   ============================================================ */
+const clock=new THREE.Clock();
+function tick(){
+  const dt=clock.getDelta(), t=clock.elapsedTime;
+  controls.update();
+  cont.rotation.y+=dt*0.02; cont.rotation.x+=dt*0.01;
+  // node breathing + scale lerp + label facing
+  NODES.forEach(n=>{
+    if(!n.mesh.visible)return;
+    n.mesh.userData.wire.rotation.y+=dt*0.3; n.mesh.userData.wire.rotation.x+=dt*0.18;
+    const ts=n.mesh.userData.targetScale||1;
+    const cur=n.mesh.scale.x; const ns=cur+(ts-cur)*Math.min(1,dt*8);
+    n.mesh.scale.setScalar(ns* (1+Math.sin(t*1.6+n.pos.x)*0.02));
+  });
+  // hover detect (desktop)
+  if(!renderer.xr.isPresenting){
+    ray.setFromCamera(mouse,camera);
+    const hits=ray.intersectObjects(pickable.filter(p=>p.userData.group.visible),false);
+    const h=hits.length?hits[0].object.userData.group.userData.node:null;
+    if(h!==hovered){ hovered=h; renderer.domElement.style.cursor=h?'pointer':'default';
+      if(h) showInspector(h); }
+  }
+  // particles
+  flowParticles.forEach(p=>{
+    if(!p.mesh.visible)return;
+    p.t=(p.t+dt*p.speed)%1; p.mesh.position.copy(p.curve.getPointAt(p.t));
+    p.mesh.scale.setScalar(1+Math.sin(t*6)*0.2);
+  });
+  if(renderer.xr.isPresenting) renderer.render(scene,camera);
+  else composer.render();
+}
+renderer.setAnimationLoop(tick);
+
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight); composer.setSize(innerWidth,innerHeight);
+});
+
+/* go */
+refresh();
+setTimeout(()=>document.getElementById('loading').style.display='none',350);
+</script>
+</body>
+</html>

@@ -121,7 +121,7 @@
     </select>
 
     <div style="margin-top:12px;display:flex;gap:6px">
-      <button id="reset">↺ RESET ANSICHT</button>
+      <button id="reset">↺ GRUNDFORM</button>
       <button id="spin">⟳ AUTO</button>
     </div>
   </div>
@@ -131,7 +131,7 @@
 <div class="pane" id="right">
   <h2>DATENSTRÖME</h2>
   <div class="body">
-    <div class="hint" id="modehint">Klicke einen Knoten zum Inspizieren.</div>
+    <div class="hint" id="modehint">Atom ziehen = verschieben (Verbindungen folgen) · Klick = inspizieren · GRUNDFORM = zurückgleiten.</div>
     <div id="flowList"></div>
     <hr style="border:none;border-top:1px solid var(--line);margin:10px 0" />
     <div id="inspect"><div class="meta">— kein Knoten gewählt —</div></div>
@@ -436,7 +436,7 @@ controls.minDistance=6; controls.maxDistance=140; controls.autoRotateSpeed=.5;
 
 const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene,camera));
-const bloom=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),0.9,0.6,0.08);
+const bloom=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),0.62,0.5,0.22);
 composer.addPass(bloom);
 
 /* lighting */
@@ -484,19 +484,25 @@ ALLZONES.forEach((z,i)=>{
 const COLOR=id=>new THREE.Color(NODES.get(NODES.get(id).zone).color);
 const pickable=[];
 const nodeGroup=new THREE.Group(); scene.add(nodeGroup);
-const labelGroup=new THREE.Group(); scene.add(labelGroup);
+const labelGroup=new THREE.Group();
+const labelScene=new THREE.Scene(); labelScene.add(labelGroup);   // rendered after bloom → crisp text
+const LBLOFF={1:new THREE.Vector3(0,2.1,0),2:new THREE.Vector3(0,1.0,0),3:new THREE.Vector3(0,0.7,0)};
 
+const _meas=document.createElement('canvas').getContext('2d');
 function makeLabel(text,hex){
-  const c=document.createElement('canvas'),s=2; c.width=256*s; c.height=64*s;
+  const pad=12, fs=21, s=3;
+  _meas.font=`600 ${fs}px ui-monospace,Menlo,monospace`;
+  const tw=Math.min(_meas.measureText(text).width,300);
+  const W=Math.ceil(tw+pad*2), H=34;
+  const c=document.createElement('canvas'); c.width=W*s; c.height=H*s;
   const x=c.getContext('2d'); x.scale(s,s);
-  x.font='600 22px ui-monospace,Menlo,monospace'; x.textBaseline='middle';
-  const w=Math.min(x.measureText(text).width+22,250);
-  x.fillStyle='rgba(2,12,18,.66)'; x.strokeStyle=hex; x.lineWidth=1.5;
-  roundRect(x,4,16,w,32,6); x.fill(); x.stroke();
-  x.fillStyle=hex; x.shadowColor=hex; x.shadowBlur=8; x.fillText(text,14,33);
-  const t=new THREE.CanvasTexture(c); t.anisotropy=4;
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthWrite:false}));
-  sp.scale.set(7.2,1.8,1); sp.userData.w=w; return sp;
+  x.font=`600 ${fs}px ui-monospace,Menlo,monospace`; x.textBaseline='middle';
+  x.fillStyle='rgba(2,10,16,0.92)'; roundRect(x,1,1,W-2,H-2,5); x.fill();      // opaque panel — no glow on text
+  x.lineWidth=1.2; x.strokeStyle=hex; x.stroke();
+  x.fillStyle='#eafdff'; x.fillText(text,pad,H/2+1,tw);
+  const t=new THREE.CanvasTexture(c); t.anisotropy=8;
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthWrite:false,depthTest:false}));
+  const h=1.65; sp.scale.set(h*(W/H),h,1); sp.userData.w=W; return sp;
 }
 function roundRect(x,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);
   x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath();}
@@ -516,6 +522,7 @@ NODES.forEach(node=>{
   const g=new THREE.Group(); g.add(core); g.add(wire); g.position.copy(node.pos);
   g.userData.node=node; g.userData.core=core; g.userData.wire=wire; g.userData.baseColor=col.clone();
   nodeGroup.add(g); node.mesh=g; pickable.push(core); core.userData.group=g;
+  node.home=node.pos.clone(); node.vel=new THREE.Vector3(); node.fixed=false;   // force-layout state
 
   const lab=makeLabel(node.label, '#'+col.getHexString());
   lab.position.copy(node.pos).add(new THREE.Vector3(0,node.lod===1?2.1:node.lod===2?1.0:.7,0));
@@ -528,11 +535,12 @@ NODES.forEach(node=>{
 const edges=[]; // {a,b,line,kind:'bond'|'flow'|'link', flowId?}
 function addEdge(aId,bId,kind,col,flowId){
   const A=NODES.get(aId),B=NODES.get(bId); if(!A||!B)return;
-  const g=new THREE.BufferGeometry().setFromPoints([A.pos,B.pos]);
+  const arr=new Float32Array([A.pos.x,A.pos.y,A.pos.z,B.pos.x,B.pos.y,B.pos.z]);
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(arr,3));
   const m=new THREE.LineBasicMaterial({color:col,transparent:true,
     opacity:kind==='bond'?.18:kind==='link'?.10:.0});
   const line=new THREE.Line(g,m); scene.add(line);
-  edges.push({a:aId,b:bId,line,kind,flowId,col:new THREE.Color(col)});
+  edges.push({a:aId,b:bId,A,B,arr,line,kind,flowId,col:new THREE.Color(col)});
 }
 /* hierarchy bonds */
 NODES.forEach(n=>{ if(n.parent) addEdge(n.parent,n.id,'bond','#1f6b7a'); });
@@ -540,6 +548,21 @@ NODES.forEach(n=>{ if(n.parent) addEdge(n.parent,n.id,'bond','#1f6b7a'); });
 LINKS.forEach(([a,b])=>{ if(NODES.has(a)&&NODES.has(b)) addEdge(a,b,'link','#2b6577'); });
 /* flow edges */
 FLOWS.forEach(f=>{ for(let i=0;i<f.path.length-1;i++) addEdge(f.path[i],f.path[i+1],'flow',f.color,f.id); });
+
+/* ---- force layout: springs at rest in the base form; deform freely, glide home on reset ---- */
+const springs=[]; { const seen=new Set();
+  edges.forEach(e=>{ if(e.kind==='flow')return; const k=e.a<e.b?e.a+'|'+e.b:e.b+'|'+e.a; if(seen.has(k))return; seen.add(k);
+    springs.push({A:e.A,B:e.B,rest:Math.max(e.A.home.distanceTo(e.B.home),0.5)}); }); }
+const SPRING=0.16, DAMP=0.80, PUSH=0.6; let homing=0;
+const _dx=new THREE.Vector3();
+function simulate(){
+  if(homing>0){ homing--; NODES.forEach(n=>{ n.pos.lerp(n.home,0.12); n.vel.set(0,0,0); }); return; }
+  for(const s of springs){ const A=s.A,B=s.B;
+    _dx.subVectors(B.pos,A.pos); const d=_dx.length()||1e-4; _dx.multiplyScalar((d-s.rest)/d*SPRING);
+    if(!A.fixed) A.vel.addScaledVector(_dx, 0.5);
+    if(!B.fixed) B.vel.addScaledVector(_dx,-0.5); }
+  NODES.forEach(n=>{ if(n.fixed){ n.vel.set(0,0,0); return; } n.vel.multiplyScalar(DAMP); n.pos.add(n.vel); });
+}
 
 /* flow particles */
 const flowParticles=[]; // {flowId, mesh, pts, t, speed, col}
@@ -668,14 +691,30 @@ function computeImpact(){
 const ray=new THREE.Raycaster(); const mouse=new THREE.Vector2();
 let hovered=null;
 function pointer(e){ mouse.x=(e.clientX/innerWidth)*2-1; mouse.y=-(e.clientY/innerHeight)*2+1; }
-renderer.domElement.addEventListener('pointermove',e=>{ pointer(e); });
-renderer.domElement.addEventListener('click',e=>{
-  pointer(e); ray.setFromCamera(mouse,camera);
-  const hits=ray.intersectObjects(pickable.filter(p=>p.userData.group.visible),false);
+let dragNode=null, didDrag=false;
+const dragPlane=new THREE.Plane(), planeHit=new THREE.Vector3(), tmpN=new THREE.Vector3();
+const visibleCores=()=>pickable.filter(p=>p.userData.group.visible);
+renderer.domElement.addEventListener('pointermove',e=>{
+  pointer(e);
+  if(dragNode){ didDrag=true; ray.setFromCamera(mouse,camera);
+    if(ray.ray.intersectPlane(dragPlane,planeHit)) dragNode.pos.copy(planeHit); }
+});
+renderer.domElement.addEventListener('pointerdown',e=>{
+  if(renderer.xr.isPresenting)return;
+  pointer(e); ray.setFromCamera(mouse,camera); didDrag=false;
+  const hits=ray.intersectObjects(visibleCores(),false);
   if(hits.length){
-    const n=hits[0].object.userData.group.userData.node;
-    onPick(n);
+    dragNode=hits[0].object.userData.group.userData.node; dragNode.fixed=true;
+    controls.enabled=false;
+    dragPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(tmpN), dragNode.pos);
   }
+});
+addEventListener('pointerup',()=>{ if(dragNode){ dragNode.fixed=false; dragNode=null; controls.enabled=true; } });
+renderer.domElement.addEventListener('click',e=>{
+  if(didDrag){ didDrag=false; return; }                 // a drag is not a click
+  pointer(e); ray.setFromCamera(mouse,camera);
+  const hits=ray.intersectObjects(visibleCores(),false);
+  if(hits.length) onPick(hits[0].object.userData.group.userData.node);
 });
 function onPick(n){
   if(ST.mode==='whatif'){
@@ -687,21 +726,30 @@ function onPick(n){
   showInspector(n); refresh();
 }
 
-/* XR controllers */
-const xrRays=[];
+/* XR controllers — Trigger greift & bewegt ein Atom; schnelles Durchstreichen schiebt Atome auseinander */
+const xrRays=[]; const cgrab=[null,null], cdist=[8,8], cprev=[new THREE.Vector3(),new THREE.Vector3()];
+const tmpM=new THREE.Matrix4(), tmpV=new THREE.Vector3(), cVel=new THREE.Vector3();
+function rayFromCtl(ctl){ tmpM.identity().extractRotation(ctl.matrixWorld);
+  ray.ray.origin.setFromMatrixPosition(ctl.matrixWorld); ray.ray.direction.set(0,0,-1).applyMatrix4(tmpM); }
 for(let i=0;i<2;i++){
   const ctl=renderer.xr.getController(i); scene.add(ctl);
   const ln=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]),
     new THREE.LineBasicMaterial({color:0x00e5ff}));
   ln.scale.z=30; ctl.add(ln);
-  ctl.addEventListener('selectstart',()=>{
-    const tmp=new THREE.Matrix4().identity().extractRotation(ctl.matrixWorld);
-    ray.ray.origin.setFromMatrixPosition(ctl.matrixWorld);
-    ray.ray.direction.set(0,0,-1).applyMatrix4(tmp);
-    const hits=ray.intersectObjects(pickable.filter(p=>p.userData.group.visible),false);
-    if(hits.length) onPick(hits[0].object.userData.group.userData.node);
-  });
+  ctl.addEventListener('selectstart',()=>{ rayFromCtl(ctl);
+    const hits=ray.intersectObjects(visibleCores(),false);
+    if(hits.length){ const n=hits[0].object.userData.group.userData.node;
+      cgrab[i]=n; cdist[i]=hits[0].distance; n.fixed=true; ST.selected=n.id; computeTrace(); showInspector(n); refresh(); } });
+  ctl.addEventListener('selectend',()=>{ if(cgrab[i]){ cgrab[i].fixed=false; cgrab[i]=null; } });
   xrRays.push(ctl);
+}
+function updateControllers(){
+  for(let i=0;i<2;i++){ const ctl=xrRays[i]; ctl.getWorldPosition(tmpV);
+    if(cgrab[i]){ rayFromCtl(ctl); cgrab[i].pos.copy(ray.ray.origin).addScaledVector(ray.ray.direction,cdist[i]); }
+    else { cVel.subVectors(tmpV,cprev[i]);
+      if(cVel.length()>0.008){ NODES.forEach(n=>{ if(n.mesh.visible&&!n.fixed&&tmpV.distanceTo(n.pos)<3.2) n.vel.addScaledVector(cVel,PUSH); }); } }
+    cprev[i].copy(tmpV);
+  }
 }
 
 /* ============================================================
@@ -751,7 +799,7 @@ document.getElementById('modeSeg').addEventListener('click',e=>{
   [...e.currentTarget.children].forEach(x=>x.classList.remove('on')); b.classList.add('on');
   ST.mode=b.dataset.mode; ST.selected=null; ST.offline.clear(); ST.impacted.clear(); ST.activeFlows.clear();
   document.querySelectorAll('.flowbtn').forEach(x=>x.classList.remove('on'));
-  const hints={explore:'Klicke einen Knoten zum Inspizieren.',
+  const hints={explore:'Atome ziehen (Maus / VR-Greifen) verschiebt sie, Verbindungen folgen. Klick = inspizieren.',
     trace:'Klicke einen Knoten — alle Datenströme & Verbindungen, die ihn berühren, leuchten auf.',
     whatif:'Klicke Knoten, um sie „abzuschalten“. Alle stromabwärts betroffenen Komponenten färben sich rot.'};
   document.getElementById('modehint').textContent=hints[ST.mode];
@@ -773,7 +821,10 @@ fl.addEventListener('click',e=>{
   refresh();
 });
 
-document.getElementById('reset').onclick=()=>{ camera.position.set(0,8,46); controls.target.set(0,0,0); };
+document.getElementById('reset').onclick=()=>{
+  homing=90; dragNode=null; NODES.forEach(n=>{ n.fixed=false; });
+  controls.enabled=true; camera.position.set(0,8,46); controls.target.set(0,0,0);
+};
 document.getElementById('spin').onclick=()=>{ ST.autoRotate=!ST.autoRotate; controls.autoRotate=ST.autoRotate; };
 
 addEventListener('keydown',e=>{
@@ -801,32 +852,43 @@ function updateStats(){
 const clock=new THREE.Clock();
 function tick(){
   const dt=clock.getDelta(), t=clock.elapsedTime;
-  controls.update();
+  if(!renderer.xr.isPresenting) controls.update();
   cont.rotation.y+=dt*0.02; cont.rotation.x+=dt*0.01;
-  // node breathing + scale lerp + label facing
+
+  if(renderer.xr.isPresenting) updateControllers();   // grab / swipe before physics
+  simulate();                                         // spring integration
+
+  // sync meshes + labels to simulated positions
   NODES.forEach(n=>{
     if(!n.mesh.visible)return;
+    n.mesh.position.copy(n.pos);
     n.mesh.userData.wire.rotation.y+=dt*0.3; n.mesh.userData.wire.rotation.x+=dt*0.18;
-    const ts=n.mesh.userData.targetScale||1;
-    const cur=n.mesh.scale.x; const ns=cur+(ts-cur)*Math.min(1,dt*8);
-    n.mesh.scale.setScalar(ns* (1+Math.sin(t*1.6+n.pos.x)*0.02));
+    const ts=n.mesh.userData.targetScale||1; const cur=n.mesh.scale.x;
+    const ns=cur+(ts-cur)*Math.min(1,dt*8);
+    n.mesh.scale.setScalar(ns*(1+Math.sin(t*1.6+n.home.x)*0.02));
+    if(n.label3.visible) n.label3.position.copy(n.pos).add(LBLOFF[n.lod]);
   });
-  // hover detect (desktop)
-  if(!renderer.xr.isPresenting){
+  // edges follow their endpoints
+  edges.forEach(e=>{ if(!e.line.visible)return;
+    const a=e.arr; a[0]=e.A.pos.x;a[1]=e.A.pos.y;a[2]=e.A.pos.z; a[3]=e.B.pos.x;a[4]=e.B.pos.y;a[5]=e.B.pos.z;
+    e.line.geometry.attributes.position.needsUpdate=true; });
+  // hover detect (desktop, not while dragging)
+  if(!renderer.xr.isPresenting && !dragNode){
     ray.setFromCamera(mouse,camera);
-    const hits=ray.intersectObjects(pickable.filter(p=>p.userData.group.visible),false);
+    const hits=ray.intersectObjects(visibleCores(),false);
     const h=hits.length?hits[0].object.userData.group.userData.node:null;
-    if(h!==hovered){ hovered=h; renderer.domElement.style.cursor=h?'pointer':'default';
-      if(h) showInspector(h); }
+    if(h!==hovered){ hovered=h; renderer.domElement.style.cursor=h?'grab':'default'; if(h) showInspector(h); }
   }
-  // particles
+  // data-stream particles (curve points reference live node positions)
   flowParticles.forEach(p=>{
     if(!p.mesh.visible)return;
-    p.t=(p.t+dt*p.speed)%1; p.mesh.position.copy(p.curve.getPointAt(p.t));
+    p.t=(p.t+dt*p.speed)%1; p.mesh.position.copy(p.curve.getPoint(p.t));
     p.mesh.scale.setScalar(1+Math.sin(t*6)*0.2);
   });
+
   if(renderer.xr.isPresenting) renderer.render(scene,camera);
   else composer.render();
+  renderer.autoClear=false; renderer.render(labelScene,camera); renderer.autoClear=true;  // crisp labels, no bloom
 }
 renderer.setAnimationLoop(tick);
 

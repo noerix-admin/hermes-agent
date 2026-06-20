@@ -71,6 +71,18 @@
   .tag{display:inline-block;font-size:8.5px;letter-spacing:1px;padding:2px 6px;border:1px solid var(--line);
     border-radius:10px;margin:3px 4px 0 0;color:var(--txt-dim)}
 
+  /* floating info card anchored to the atom */
+  #tip{position:fixed;z-index:20;width:212px;pointer-events:none;display:none;
+    background:var(--panel);border:1px solid var(--cyan);border-radius:5px;padding:9px 11px;
+    box-shadow:0 0 22px rgba(0,229,255,.28);backdrop-filter:blur(7px);transform:translate(-50%,calc(-100% - 14px))}
+  #tip::after{content:"";position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);
+    border:7px solid transparent;border-top-color:var(--cyan);border-bottom:none}
+  #tip .nm{font-size:13px;color:var(--cyan);letter-spacing:1px;margin-bottom:3px}
+  #tip .meta{font-size:9.5px;color:var(--txt-dim);margin:2px 0}
+  #tip .desc{font-size:11px;line-height:1.5;margin-top:7px;color:var(--txt)}
+  #tip .file{font-size:9.5px;color:#6fe7ff;word-break:break-all;margin-top:6px;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #tip .tag{display:inline-block;font-size:8.5px;letter-spacing:1px;padding:2px 6px;border:1px solid var(--line);border-radius:10px;margin:3px 4px 0 0;color:var(--txt-dim)}
+
   #legend{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center}
   #legend .li{display:flex;align-items:center;gap:6px;font-size:9.5px;color:var(--txt-dim)}
 
@@ -428,7 +440,7 @@ const app=document.getElementById('app');
 const scene=new THREE.Scene();
 scene.fog=new THREE.FogExp2(0x02060a,0.0085);
 const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,500);
-camera.position.set(0,15,44);
+camera.position.set(0,24,70);
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setSize(innerWidth,innerHeight);
@@ -438,7 +450,7 @@ document.getElementById('vrslot').appendChild(VRButton.createButton(renderer));
 
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enableDamping=true; controls.dampingFactor=.07;
-controls.minDistance=6; controls.maxDistance=140; controls.autoRotateSpeed=.5;
+controls.minDistance=6; controls.maxDistance=240; controls.autoRotateSpeed=.5;
 
 const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene,camera));
@@ -482,12 +494,12 @@ function clump(center,radius,flat){ const a=rand()*Math.PI*2,u=rand()*2-1,rr=rad
   return center.clone().add(new THREE.Vector3(Math.cos(a)*sx*rr, u*rr*flat, Math.sin(a)*sx*rr)); }
 const GA=Math.PI*(3-Math.sqrt(5));   // golden angle → sunflower spiral
 ALLZONES.forEach((z,i)=>{
-  const ang=i*GA, rad=4.5+Math.sqrt(i+0.4)*5.4;          // galactic disc placement
-  z.pos=new THREE.Vector3(Math.cos(ang)*rad, (rand()-0.5)*6, Math.sin(ang)*rad);
-  const comps=z.children||[]; const cr=3.0+comps.length*0.16;
+  const ang=i*GA, rad=7+Math.sqrt(i+0.4)*8.1;            // galactic disc, ~50% more spread
+  z.pos=new THREE.Vector3(Math.cos(ang)*rad, (rand()-0.5)*9, Math.sin(ang)*rad);
+  const comps=z.children||[]; const cr=4.4+comps.length*0.24;
   comps.forEach(c=>{
     c.pos=clump(z.pos,cr,0.55);                          // organic cluster around the zone
-    const mods=c.children||[]; const mr=1.1+mods.length*0.1;
+    const mods=c.children||[]; const mr=1.6+mods.length*0.14;
     mods.forEach(m=> m.pos=clump(c.pos,mr,0.6));
   });
 });
@@ -745,9 +757,14 @@ renderer.domElement.addEventListener('pointermove',e=>{
   if(dragging){ ray.setFromCamera(mouse,camera);
     if(ray.ray.intersectPlane(dragPlane,planeHit)) dragNode.pos.copy(planeHit); }
 });
-addEventListener('pointerup',()=>{
+addEventListener('pointerup',e=>{
   if(dragging){ if(dragNode) dragNode.fixed=false; }   // was a drag
-  else if(dragCand){ onPick(dragCand); }               // was a click → inspect
+  else {                                               // was a click → inspect
+    let n=dragCand;
+    if(!n && e && !renderer.xr.isPresenting){ pointer(e); ray.setFromCamera(mouse,camera);
+      const h=ray.intersectObjects(visibleCores(),false); n=h.length?h[0].object.userData.group.userData.node:null; }
+    if(n) onPick(n);
+  }
   dragNode=null; dragCand=null; dragging=false; controls.enabled=true;
 });
 function onPick(n){
@@ -789,19 +806,31 @@ function updateControllers(){
 /* ============================================================
    UI WIRING
    ============================================================ */
-function showInspector(n){
+function infoHTML(n){
   const z=NODES.get(n.zone);
-  const el=document.getElementById('inspect');
-  el.innerHTML=`<div class="nm">${n.label}</div>
+  return `<div class="nm">${n.label}</div>
     <div class="meta">ZONE · ${z.label}</div>
     <div class="meta">LOD ${n.lod} · ${n.lod===1?'Zone':n.lod===2?'Komponente':'Modul'}</div>
-    <div>
-      <span class="tag" style="color:${KIND_COLOR[n.kind]};border-color:${KIND_COLOR[n.kind]}">${KIND_LABEL[n.kind]}</span>
-      <span class="tag">Tenant: ${n.tenant}</span>
-    </div>
+    <div><span class="tag" style="color:${KIND_COLOR[n.kind]};border-color:${KIND_COLOR[n.kind]}">${KIND_LABEL[n.kind]}</span>
+    <span class="tag">Tenant: ${n.tenant}</span></div>
     <div class="desc">${n.desc||''}</div>
     ${n.file?`<div class="file">▸ ${n.file}</div>`:''}
     ${ST.mode==='whatif'?`<div class="meta" style="margin-top:8px;color:#ff7b91">${ST.offline.has(n.id)?'⚠ OFFLINE — '+ST.impacted.size+' Knoten betroffen':'Klicken schaltet Knoten ab'}</div>`:''}`;
+}
+function showInspector(n){ document.getElementById('inspect').innerHTML=infoHTML(n); }
+
+// floating info card anchored to the active atom in screen space
+const tip=document.createElement('div'); tip.id='tip'; document.body.appendChild(tip);
+const _pv=new THREE.Vector3();
+function updateTip(){
+  const an = hovered || (ST.selected ? NODES.get(ST.selected) : null);
+  if(!an || !an.mesh || !an.mesh.visible || renderer.xr.isPresenting){ tip.style.display='none'; return; }
+  _pv.copy(an.pos).project(camera);
+  if(_pv.z>1){ tip.style.display='none'; return; }
+  tip.innerHTML=infoHTML(an);
+  tip.style.left=((_pv.x*0.5+0.5)*innerWidth)+'px';
+  tip.style.top =((-_pv.y*0.5+0.5)*innerHeight)+'px';
+  tip.style.display='block';
 }
 
 const zf=document.getElementById('zoneFilters');
@@ -857,7 +886,7 @@ fl.addEventListener('click',e=>{
 
 document.getElementById('reset').onclick=()=>{
   homing=90; dragNode=null; NODES.forEach(n=>{ n.fixed=false; });
-  controls.enabled=true; camera.position.set(0,15,44); controls.target.set(0,0,0);
+  controls.enabled=true; camera.position.set(0,24,70); controls.target.set(0,0,0);
 };
 document.getElementById('spin').onclick=()=>{ ST.autoRotate=!ST.autoRotate; controls.autoRotate=ST.autoRotate; };
 
@@ -914,6 +943,7 @@ function tick(){
     const h=hits.length?hits[0].object.userData.group.userData.node:null;
     if(h!==hovered){ hovered=h; renderer.domElement.style.cursor=h?'grab':'default'; if(h) showInspector(h); }
   }
+  updateTip();   // anchor the info card to the hovered/selected atom
   // data-stream particles (curve points reference live node positions)
   flowParticles.forEach(p=>{
     if(!p.mesh.visible)return;

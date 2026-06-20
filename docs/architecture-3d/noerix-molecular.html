@@ -900,7 +900,7 @@ function tick(){
     const cm=n.mesh.userData.core; cm.rotation.y+=dt*0.25; cm.rotation.x+=dt*0.15;
     const ts=n.mesh.userData.targetScale||1; const cur=n.mesh.scale.x;
     const ns=cur+(ts-cur)*Math.min(1,dt*8);
-    n.mesh.scale.setScalar(ns*(1+Math.sin(t*1.6+n.home.x)*0.02));
+    n.mesh.scale.setScalar(ns*(1+Math.sin(t*1.6+n.home.x)*0.01));   // subtle breathing, halved
     if(n.label3.visible) n.label3.position.copy(n.pos).add(LBLOFF[n.lod]);
   });
   // edges follow their endpoints

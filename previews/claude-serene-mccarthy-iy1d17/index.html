@@ -491,7 +491,7 @@ const pickable=[];
 const nodeGroup=new THREE.Group(); scene.add(nodeGroup);
 const labelGroup=new THREE.Group();
 const labelScene=new THREE.Scene(); labelScene.add(labelGroup);   // rendered after bloom → crisp text
-const LBLOFF={1:new THREE.Vector3(0,2.1,0),2:new THREE.Vector3(0,1.0,0),3:new THREE.Vector3(0,0.7,0)};
+const LBLOFF={1:new THREE.Vector3(0,1.7,0),2:new THREE.Vector3(0,0.8,0),3:new THREE.Vector3(0,0.55,0)};
 
 const _meas=document.createElement('canvas').getContext('2d');
 const LBL_FONT='500 20px "Rajdhani","Chakra Petch","Segoe UI",system-ui,sans-serif';
@@ -504,7 +504,7 @@ function drawLabelCanvas(text,hex){
   const x=c.getContext('2d'); x.scale(s,s);
   x.font=LBL_FONT; if('letterSpacing' in x) x.letterSpacing='0.7px'; x.textBaseline='middle';
   x.fillStyle='rgba(3,11,17,0.48)'; roundRect(x,0,3,W,H-6,3); x.fill();        // faint backing, no hard border
-  x.fillStyle='#c4ced3'; x.fillText(text,padX,H/2-1,tw);                       // light grey, technical
+  x.fillStyle='#93a0a6'; x.fillText(text,padX,H/2-1,tw);                       // muted technical grey
   x.globalAlpha=0.85; x.strokeStyle=hex; x.lineWidth=1.3;                      // zone-colored accent rule
   x.beginPath(); x.moveTo(padX,H-5.5); x.lineTo(padX+tw,H-5.5); x.stroke(); x.globalAlpha=1;
   const t=new THREE.CanvasTexture(c); t.anisotropy=8; t.minFilter=THREE.LinearFilter;
@@ -513,7 +513,7 @@ function drawLabelCanvas(text,hex){
 function makeLabel(text,hex){
   const {tex,W,H}=drawLabelCanvas(text,hex);
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,depthTest:false}));
-  const h=1.5; sp.scale.set(h*(W/H),h,1); return sp;
+  const h=0.75; sp.scale.set(h*(W/H),h,1); return sp;
 }
 function refreshAllLabels(){
   NODES.forEach(n=>{ if(!n.label3)return;
@@ -521,7 +521,7 @@ function refreshAllLabels(){
     const {tex,W,H}=drawLabelCanvas(n.label,hex);
     if(n.label3.material.map) n.label3.material.map.dispose();
     n.label3.material.map=tex; n.label3.material.needsUpdate=true;
-    const h=1.5; n.label3.scale.set(h*(W/H),h,1);
+    const h=0.75; n.label3.scale.set(h*(W/H),h,1);
   });
 }
 function roundRect(x,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);

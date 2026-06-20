@@ -141,6 +141,7 @@
       <button id="reset">↺ GRUNDFORM</button>
       <button id="spin">⟳ AUTO</button>
     </div>
+    <div class="hint" style="margin-top:10px">Atmen = Arbeitsstatus · kräftig = <b>in Arbeit</b> · ruhig = <b>stabil</b> · blass = <b>geplant</b>. Status pro Atom rechts setzbar (wird im Browser gespeichert).</div>
   </div>
 </div>
 
@@ -647,6 +648,16 @@ const KIND_LABEL={software:'Software',hardware:'Hardware',data:'Daten',external:
 const KIND_COLOR={software:'#22d3ee',hardware:'#f87171',data:'#94a3b8',external:'#fbbf24',logic:'#fb923c'};
 const C_DARK=new THREE.Color(0x1a2730), C_RED=new THREE.Color(0xff3b5c);
 
+/* ---- work status (drives the breathing): geplant / in Arbeit / stabil ---- */
+const STATUS_KEYS=['planned','wip','stable'];
+const STATUS_LABEL={planned:'Geplant',wip:'In Arbeit',stable:'Stabil'};
+const statusOf={};
+NODES.forEach(n=> statusOf[n.id]=n.status||'stable');
+try{ Object.assign(statusOf, JSON.parse(localStorage.getItem('hermes_arch_status')||'{}')); }catch(e){}
+function setStatus(id,s){ statusOf[id]=s;
+  try{ localStorage.setItem('hermes_arch_status',JSON.stringify(statusOf)); }catch(e){}
+  refresh(); if(ST.selected===id) showInspector(NODES.get(id)); }
+
 function nodeVisible(n){
   if(n.lod>ST.lod) return false;
   if(!ST.zones.has(n.zone)) return false;
@@ -670,6 +681,7 @@ function refresh(){
       if(tracedNodes.has(n.id)){ em=1.7; shellI=1.7; scale=1.12; } else { em=.2; op=.35; shellI=.25; }
     }
     if(ST.selected===n.id){ scale=1.32; em=2; shellI=2; }
+    if(statusOf[n.id]==='planned' && ST.selected!==n.id){ op*=0.55; shellI*=0.5; em*=0.6; }  // planned = faint
     core.material.color.copy(col); core.material.emissive.copy(col);
     core.material.emissiveIntensity=em; core.material.opacity=op;
     shell.material.uniforms.uColor.value.copy(col);
@@ -812,12 +824,22 @@ function infoHTML(n){
     <div class="meta">ZONE · ${z.label}</div>
     <div class="meta">LOD ${n.lod} · ${n.lod===1?'Zone':n.lod===2?'Komponente':'Modul'}</div>
     <div><span class="tag" style="color:${KIND_COLOR[n.kind]};border-color:${KIND_COLOR[n.kind]}">${KIND_LABEL[n.kind]}</span>
-    <span class="tag">Tenant: ${n.tenant}</span></div>
+    <span class="tag">Tenant: ${n.tenant}</span>
+    <span class="tag" style="color:#9fe;border-color:#2b6577">● ${STATUS_LABEL[statusOf[n.id]]}</span></div>
     <div class="desc">${n.desc||''}</div>
     ${n.file?`<div class="file">▸ ${n.file}</div>`:''}
     ${ST.mode==='whatif'?`<div class="meta" style="margin-top:8px;color:#ff7b91">${ST.offline.has(n.id)?'⚠ OFFLINE — '+ST.impacted.size+' Knoten betroffen':'Klicken schaltet Knoten ab'}</div>`:''}`;
 }
-function showInspector(n){ document.getElementById('inspect').innerHTML=infoHTML(n); }
+function showInspector(n){
+  const el=document.getElementById('inspect');
+  const cur=statusOf[n.id];
+  el.innerHTML=infoHTML(n)+
+    `<div class="small" style="margin-top:9px">Arbeitsstatus (Atmen)</div>
+     <div class="seg" id="statusSeg" style="margin:4px 0 0">
+       ${STATUS_KEYS.map(s=>`<button data-st="${s}" class="${cur===s?'on':''}" style="font-size:9px">${STATUS_LABEL[s]}</button>`).join('')}
+     </div>`;
+  el.querySelectorAll('#statusSeg button').forEach(b=> b.onclick=()=>setStatus(n.id,b.dataset.st));
+}
 
 // floating info card anchored to the active atom in screen space
 const tip=document.createElement('div'); tip.id='tip'; document.body.appendChild(tip);
@@ -929,7 +951,10 @@ function tick(){
     const cm=n.mesh.userData.core; cm.rotation.y+=dt*0.25; cm.rotation.x+=dt*0.15;
     const ts=n.mesh.userData.targetScale||1; const cur=n.mesh.scale.x;
     const ns=cur+(ts-cur)*Math.min(1,dt*8);
-    n.mesh.scale.setScalar(ns*(1+Math.sin(t*1.6+n.home.x)*0.01));   // subtle breathing, halved
+    const st=statusOf[n.id];                                        // breathing encodes work status
+    const amp = st==='wip'?0.07 : st==='planned'?0.022 : 0.004;
+    const spd = st==='wip'?2.6 : st==='planned'?0.9 : 1.2;
+    n.mesh.scale.setScalar(ns*(1+Math.sin(t*spd+n.home.x)*amp));
     if(n.label3.visible) n.label3.position.copy(n.pos).add(LBLOFF[n.lod]);
   });
   // edges follow their endpoints

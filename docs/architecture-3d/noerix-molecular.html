@@ -563,7 +563,7 @@ const GLASS=new THREE.ShaderMaterial({
 NODES.forEach(node=>{
   const col=node.lod===1?new THREE.Color(node.color):COLOR(node.id);
   const r=node.lod===1?1.3:node.lod===2?0.58:0.34;
-  const core=new THREE.Mesh(new THREE.IcosahedronGeometry(r*0.6,node.lod===1?1:0),
+  const core=new THREE.Mesh(new THREE.SphereGeometry(r*0.6,20,14),
     new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:node.lod===1?1.4:0.85,
       metalness:.2,roughness:.35,transparent:true,opacity:.95}));
   const shell=new THREE.Mesh(new THREE.SphereGeometry(r*0.88,24,16), GLASS.clone());
@@ -659,7 +659,7 @@ const C_DARK=new THREE.Color(0x1a2730), C_RED=new THREE.Color(0xff3b5c);
 const STATUS_KEYS=['planned','wip','stable'];
 const STATUS_LABEL={planned:'Geplant',wip:'In Arbeit',stable:'Abgeschlossen'};
 const statusOf={};
-NODES.forEach(n=> statusOf[n.id]=n.status||'stable');
+NODES.forEach(n=> statusOf[n.id]=n.status||'wip');   // default: in Arbeit (mark items "abgeschlossen" as you finish)
 try{ Object.assign(statusOf, JSON.parse(localStorage.getItem('hermes_arch_status')||'{}')); }catch(e){}
 function setStatus(id,s){ statusOf[id]=s;
   try{ localStorage.setItem('hermes_arch_status',JSON.stringify(statusOf)); }catch(e){}

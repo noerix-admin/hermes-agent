@@ -132,14 +132,15 @@
   </div>
 </div>
 
-<!-- RIGHT: flows + inspector -->
+<!-- RIGHT: inspector + flows -->
 <div class="pane" id="right">
-  <h2>DATENSTRÖME</h2>
+  <h2>KNOTEN-INFO</h2>
   <div class="body">
+    <div id="inspect"><div class="meta">— Atom anklicken für Details —</div></div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:12px 0" />
+    <div class="small">Datenströme</div>
     <div class="hint" id="modehint">Atom ziehen = verschieben (Verbindungen folgen) · Klick = inspizieren · GRUNDFORM = zurückgleiten.</div>
     <div id="flowList"></div>
-    <hr style="border:none;border-top:1px solid var(--line);margin:10px 0" />
-    <div id="inspect"><div class="meta">— kein Knoten gewählt —</div></div>
   </div>
 </div>
 
@@ -513,7 +514,7 @@ function drawLabelCanvas(text,hex){
 function makeLabel(text,hex){
   const {tex,W,H}=drawLabelCanvas(text,hex);
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,depthTest:false}));
-  const h=0.75; sp.scale.set(h*(W/H),h,1); return sp;
+  const h=0.94; sp.scale.set(h*(W/H),h,1); return sp;
 }
 function refreshAllLabels(){
   NODES.forEach(n=>{ if(!n.label3)return;
@@ -521,7 +522,7 @@ function refreshAllLabels(){
     const {tex,W,H}=drawLabelCanvas(n.label,hex);
     if(n.label3.material.map) n.label3.material.map.dispose();
     n.label3.material.map=tex; n.label3.material.needsUpdate=true;
-    const h=0.75; n.label3.scale.set(h*(W/H),h,1);
+    const h=0.94; n.label3.scale.set(h*(W/H),h,1);
   });
 }
 function roundRect(x,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);

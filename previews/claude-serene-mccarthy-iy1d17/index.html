@@ -182,6 +182,9 @@ import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 
 /* ============================================================
    ARCHITECTURE MODEL  (derived from AGENTS.md — real Hermes layout)
@@ -478,8 +481,8 @@ function starDisc(n,spread,flat,size,color,opacity,parent){
   const pts=new THREE.Points(g,new THREE.PointsMaterial({map:GLOW,color,size,transparent:true,opacity,
     depthWrite:false,blending:THREE.AdditiveBlending,sizeAttenuation:true,alphaTest:0.01}));
   (parent||scene).add(pts); return pts; }
-starDisc(3200,160,0.09,0.95,0x9fd8ff,0.9,galaxyGroup);   // bright galactic disc (round, soft)
-starDisc(1400,340,1.0,1.5,0x336f88,0.55,scene);          // far halo
+starDisc(3200,160,0.09,0.48,0x9fd8ff,0.9,galaxyGroup);   // bright galactic disc (round, soft)
+starDisc(1400,340,1.0,0.75,0x336f88,0.55,scene);         // far halo
 const coreGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:0x8fe3ff,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}));
 coreGlow.scale.set(42,42,1); galaxyGroup.add(coreGlow);
 [[0x2a4d8f,62,40,6,-10],[0x5a2f7a,54,-46,-6,8],[0x12506b,68,8,4,-30]].forEach(([c,s,px,py,pz])=>{
@@ -582,15 +585,17 @@ NODES.forEach(node=>{
 /* ============================================================
    EDGES  (bonds + flow segments)
    ============================================================ */
-const edges=[]; // {a,b,line,kind:'bond'|'flow'|'link', flowId?}
+const edges=[]; // {a,b,A,B,geo,line,kind,flowId,col}
 function addEdge(aId,bId,kind,col,flowId){
   const A=NODES.get(aId),B=NODES.get(bId); if(!A||!B)return;
-  const arr=new Float32Array([A.pos.x,A.pos.y,A.pos.z,B.pos.x,B.pos.y,B.pos.z]);
-  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(arr,3));
-  const m=new THREE.LineBasicMaterial({color:col,transparent:true,
-    opacity:kind==='bond'?.18:kind==='link'?.10:.0});
-  const line=new THREE.Line(g,m); scene.add(line);
-  edges.push({a:aId,b:bId,A,B,arr,line,kind,flowId,col:new THREE.Color(col)});
+  const geo=new LineGeometry();
+  geo.setPositions([A.pos.x,A.pos.y,A.pos.z,B.pos.x,B.pos.y,B.pos.z]);
+  const lw=kind==='flow'?3.0:kind==='bond'?2.4:1.8;   // fat lines (real thickness in px)
+  const m=new LineMaterial({color:new THREE.Color(col).getHex(),linewidth:lw,transparent:true,
+    opacity:kind==='bond'?.24:kind==='link'?.14:0,depthWrite:false,dashed:false});
+  m.resolution.set(innerWidth,innerHeight);
+  const line=new Line2(geo,m); line.frustumCulled=false; scene.add(line);
+  edges.push({a:aId,b:bId,A,B,geo,line,kind,flowId,col:new THREE.Color(col)});
 }
 /* hierarchy bonds */
 NODES.forEach(n=>{ if(n.parent) addEdge(n.parent,n.id,'bond','#37a3bd'); });
@@ -604,14 +609,17 @@ const springs=[]; { const seen=new Set();
   edges.forEach(e=>{ if(e.kind==='flow')return; const k=e.a<e.b?e.a+'|'+e.b:e.b+'|'+e.a; if(seen.has(k))return; seen.add(k);
     springs.push({A:e.A,B:e.B,rest:Math.max(e.A.home.distanceTo(e.B.home),0.5)}); }); }
 const SPRING=0.16, DAMP=0.80, PUSH=0.6; let homing=0;
+let simMoved=false, forceEdgeUpdate=true;          // edges only re-projected when atoms actually move
 const _dx=new THREE.Vector3();
 function simulate(){
-  if(homing>0){ homing--; NODES.forEach(n=>{ n.pos.lerp(n.home,0.12); n.vel.set(0,0,0); }); return; }
+  if(homing>0){ homing--; NODES.forEach(n=>{ n.pos.lerp(n.home,0.12); n.vel.set(0,0,0); }); simMoved=true; return; }
   for(const s of springs){ const A=s.A,B=s.B;
     _dx.subVectors(B.pos,A.pos); const d=_dx.length()||1e-4; _dx.multiplyScalar((d-s.rest)/d*SPRING);
     if(!A.fixed) A.vel.addScaledVector(_dx, 0.5);
     if(!B.fixed) B.vel.addScaledVector(_dx,-0.5); }
-  NODES.forEach(n=>{ if(n.fixed){ n.vel.set(0,0,0); return; } n.vel.multiplyScalar(DAMP); n.pos.add(n.vel); });
+  simMoved=false;
+  NODES.forEach(n=>{ if(n.fixed){ n.vel.set(0,0,0); return; } n.vel.multiplyScalar(DAMP);
+    if(n.vel.lengthSq()>1e-6) simMoved=true; n.pos.add(n.vel); });
 }
 
 /* flow particles */
@@ -724,6 +732,7 @@ function refresh(){
     p.mesh.material.opacity=active?.95:0; p.mesh.visible=active;
   });
   updateStats();
+  forceEdgeUpdate=true;   // reproject edges after any filter/LOD/mode change
 }
 
 /* trace computation */
@@ -956,20 +965,22 @@ function tick(){
   NODES.forEach(n=>{
     if(!n.mesh.visible)return;
     n.mesh.position.copy(n.pos);
-    const cm=n.mesh.userData.core; cm.rotation.y+=dt*0.25; cm.rotation.x+=dt*0.15;
-    const ts=n.mesh.userData.targetScale||1; const cur=n.mesh.scale.x;
-    const ns=cur+(ts-cur)*Math.min(1,dt*8);
+    // clean base-scale (lerps to target) kept separate from the breathing factor — no feedback blow-up
+    const ts=n.mesh.userData.targetScale||1;
+    n.bscale = (n.bscale||1) + (ts-(n.bscale||1))*Math.min(1,dt*8);
     const st=statusOf[n.id];                                        // breathing encodes work status
     let amp=0, spd=1.2;                                             // abgeschlossen = still
-    if(st==='wip'){ const c=(n.crit||0)/MAXC; amp=0.03+c*0.10; spd=1.4+c*3.0; }  // tempo ∝ criticality
-    else if(st==='planned'){ amp=0.012; spd=0.8; }                 // geplant = faint slow
-    n.mesh.scale.setScalar(ns*(1+Math.sin(t*spd+n.home.x)*amp));
+    if(st==='wip'){ const c=(n.crit||0)/MAXC; amp=0.018+c*0.045; spd=1.3+c*2.2; }  // gentle→firm by criticality
+    else if(st==='planned'){ amp=0.01; spd=0.8; }                  // geplant = faint slow
+    n.mesh.scale.setScalar(n.bscale*(1+Math.sin(t*spd+n.home.x)*amp));
     if(n.label3.visible) n.label3.position.copy(n.pos).add(LBLOFF[n.lod]);
   });
-  // edges follow their endpoints
-  edges.forEach(e=>{ if(!e.line.visible)return;
-    const a=e.arr; a[0]=e.A.pos.x;a[1]=e.A.pos.y;a[2]=e.A.pos.z; a[3]=e.B.pos.x;a[4]=e.B.pos.y;a[5]=e.B.pos.z;
-    e.line.geometry.attributes.position.needsUpdate=true; });
+  // edges follow their endpoints — only when atoms actually moved (fat lines: setPositions)
+  if(dragging||homing>0||simMoved||forceEdgeUpdate){
+    forceEdgeUpdate=false;
+    edges.forEach(e=>{ if(!e.line.visible)return;
+      e.geo.setPositions([e.A.pos.x,e.A.pos.y,e.A.pos.z, e.B.pos.x,e.B.pos.y,e.B.pos.z]); });
+  }
   // hover detect (desktop, not while dragging)
   if(!renderer.xr.isPresenting && !dragging){
     ray.setFromCamera(mouse,camera);
@@ -994,6 +1005,7 @@ renderer.setAnimationLoop(tick);
 addEventListener('resize',()=>{
   camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth,innerHeight); composer.setSize(innerWidth,innerHeight);
+  edges.forEach(e=> e.line.material.resolution.set(innerWidth,innerHeight));
 });
 
 /* go */

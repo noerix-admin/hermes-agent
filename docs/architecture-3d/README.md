@@ -3,7 +3,30 @@
 Eine eigenständige, interaktive 3D-Visualisierung der gesamten Hermes-Architektur
 im Jarvis/Stark-Hologramm-Look. Drehbar, zoombar und **VR-tauglich** (WebXR).
 
-## Öffnen
+## Live ansehen (empfohlen — kein Download, kein git)
+
+Der Viewer wird automatisch via GitHub Pages veröffentlicht
+(`.github/workflows/deploy-architecture-3d.yml`):
+
+- **`main`-Stand:** `https://noerix-admin.github.io/hermes-agent/`
+- **Branch-Preview (WIP):** `https://noerix-admin.github.io/hermes-agent/previews/<branch-slug>/`
+- **Übersicht aller Previews:** `https://noerix-admin.github.io/hermes-agent/previews/`
+
+Jeder Push, der `docs/architecture-3d/**` ändert, baut die Seite neu. Die genaue
+URL steht in der Zusammenfassung des jeweiligen Actions-Laufs. Einfach die URL als
+Lesezeichen speichern und bei Bedarf neu laden — die Grafik wächst mit unseren
+Erkenntnissen mit.
+
+### Einmalige Einrichtung (durch Repo-Owner)
+
+1. **Actions aktivieren:** Settings → Actions → General → *Allow all actions* (falls noch nicht aktiv).
+2. **Pages-Quelle setzen:** Settings → Pages → Build and deployment → Source:
+   **„Deploy from a branch"** → Branch **`gh-pages`** / **`/ (root)`** → Save.
+   (Der `gh-pages`-Branch wird beim ersten Workflow-Lauf automatisch angelegt.)
+
+Danach ist alles selbsttragend.
+
+## Lokal öffnen (Alternative)
 
 Einfach `noerix-molecular.html` in einem modernen Browser öffnen
 (Chrome/Edge/Firefox). Three.js wird per CDN (jsdelivr) geladen — also

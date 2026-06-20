@@ -141,7 +141,7 @@
       <button id="reset">↺ GRUNDFORM</button>
       <button id="spin">⟳ AUTO</button>
     </div>
-    <div class="hint" style="margin-top:10px">Atmen = Arbeitsstatus · kräftig = <b>in Arbeit</b> · ruhig = <b>stabil</b> · blass = <b>geplant</b>. Status pro Atom rechts setzbar (wird im Browser gespeichert).</div>
+    <div class="hint" style="margin-top:10px">Atmen = Status · <b>ruhig</b> = abgeschlossen · <b>atmet</b> = in Arbeit (Tempo ∝ Kritikalität / abhängige Knoten) · <b>blass</b> = geplant. Status pro Atom rechts setzbar (im Browser gespeichert).</div>
   </div>
 </div>
 
@@ -566,7 +566,7 @@ NODES.forEach(node=>{
   const core=new THREE.Mesh(new THREE.IcosahedronGeometry(r*0.6,node.lod===1?1:0),
     new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:node.lod===1?1.4:0.85,
       metalness:.2,roughness:.35,transparent:true,opacity:.95}));
-  const shell=new THREE.Mesh(new THREE.SphereGeometry(r*0.98,24,16), GLASS.clone());
+  const shell=new THREE.Mesh(new THREE.SphereGeometry(r*0.88,24,16), GLASS.clone());
   shell.material.uniforms.uColor.value=new THREE.Color().copy(col);
   const g=new THREE.Group(); g.add(shell); g.add(core); g.position.copy(node.pos);
   g.userData.node=node; g.userData.core=core; g.userData.shell=shell; g.userData.baseColor=col.clone();
@@ -633,6 +633,12 @@ function link(a,b){ if(!ADJ.has(a))ADJ.set(a,new Set()); ADJ.get(a).add(b); }
 LINKS.forEach(([a,b])=>{ if(NODES.has(a)&&NODES.has(b)) link(a,b); });
 FLOWS.forEach(f=>{ for(let i=0;i<f.path.length-1;i++) link(f.path[i],f.path[i+1]); });
 
+/* criticality = blast radius: how many atoms depend on / are affected by this one */
+function blast(id){ const seen=new Set(); const q=[id];
+  while(q.length){ const c=q.shift(); (ADJ.get(c)||[]).forEach(x=>{ if(!seen.has(x)){ seen.add(x); q.push(x);} }); }
+  seen.delete(id); return seen.size; }
+let MAXC=1; NODES.forEach(n=>{ n.crit=blast(n.id); if(n.crit>MAXC)MAXC=n.crit; });
+
 /* ============================================================
    STATE
    ============================================================ */
@@ -651,7 +657,7 @@ const C_DARK=new THREE.Color(0x1a2730), C_RED=new THREE.Color(0xff3b5c);
 
 /* ---- work status (drives the breathing): geplant / in Arbeit / stabil ---- */
 const STATUS_KEYS=['planned','wip','stable'];
-const STATUS_LABEL={planned:'Geplant',wip:'In Arbeit',stable:'Stabil'};
+const STATUS_LABEL={planned:'Geplant',wip:'In Arbeit',stable:'Abgeschlossen'};
 const statusOf={};
 NODES.forEach(n=> statusOf[n.id]=n.status||'stable');
 try{ Object.assign(statusOf, JSON.parse(localStorage.getItem('hermes_arch_status')||'{}')); }catch(e){}
@@ -824,6 +830,7 @@ function infoHTML(n){
   return `<div class="nm">${n.label}</div>
     <div class="meta">ZONE · ${z.label}</div>
     <div class="meta">LOD ${n.lod} · ${n.lod===1?'Zone':n.lod===2?'Komponente':'Modul'}</div>
+    <div class="meta">Kritikalität · ${n.crit||0} abhängige Knoten</div>
     <div><span class="tag" style="color:${KIND_COLOR[n.kind]};border-color:${KIND_COLOR[n.kind]}">${KIND_LABEL[n.kind]}</span>
     <span class="tag">Tenant: ${n.tenant}</span>
     <span class="tag" style="color:#9fe;border-color:#2b6577">● ${STATUS_LABEL[statusOf[n.id]]}</span></div>
@@ -953,8 +960,9 @@ function tick(){
     const ts=n.mesh.userData.targetScale||1; const cur=n.mesh.scale.x;
     const ns=cur+(ts-cur)*Math.min(1,dt*8);
     const st=statusOf[n.id];                                        // breathing encodes work status
-    const amp = st==='wip'?0.09 : st==='planned'?0.025 : 0.013;     // stable still gently alive
-    const spd = st==='wip'?2.6 : st==='planned'?0.9 : 1.2;
+    let amp=0, spd=1.2;                                             // abgeschlossen = still
+    if(st==='wip'){ const c=(n.crit||0)/MAXC; amp=0.03+c*0.10; spd=1.4+c*3.0; }  // tempo ∝ criticality
+    else if(st==='planned'){ amp=0.012; spd=0.8; }                 // geplant = faint slow
     n.mesh.scale.setScalar(ns*(1+Math.sin(t*spd+n.home.x)*amp));
     if(n.label3.visible) n.label3.position.copy(n.pos).add(LBLOFF[n.lod]);
   });

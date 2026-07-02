@@ -62,6 +62,7 @@
 
   .flowbtn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;margin:4px 0;padding:6px 8px}
   .flowbtn.on{border-color:var(--cyan);background:rgba(0,229,255,.18)}
+  #spin.on{border-color:var(--cyan);background:rgba(0,229,255,.18);box-shadow:0 0 12px rgba(0,229,255,.4)}
   .flowbar{width:4px;height:14px;border-radius:2px;flex:none;box-shadow:0 0 7px currentColor}
 
   #inspect .nm{font-size:13px;color:var(--cyan);letter-spacing:1px;margin-bottom:3px}
@@ -454,7 +455,14 @@ document.getElementById('vrslot').appendChild(VRButton.createButton(renderer));
 
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enableDamping=true; controls.dampingFactor=.07;
-controls.minDistance=6; controls.maxDistance=240; controls.autoRotateSpeed=.5;
+controls.minDistance=6; controls.maxDistance=240;
+controls.autoRotate=true; controls.autoRotateSpeed=.5;   // gentle turntable, like a spinning globe
+
+/* auto-rotation that yields to the user: pause while orbiting/dragging, resume after a short idle */
+const IDLE_RESUME=2.5;                                   // seconds of stillness before it picks back up
+let orbiting=false, idle=IDLE_RESUME;                    // start already "idle" so it spins on load
+controls.addEventListener('start',()=>{ orbiting=true; });
+controls.addEventListener('end',  ()=>{ orbiting=false; idle=0; });
 
 const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene,camera));
@@ -657,7 +665,7 @@ const ST={
   tenant:'all',
   activeFlows:new Set(),
   selected:null, offline:new Set(), impacted:new Set(),
-  autoRotate:false,
+  autoRotate:true,
 };
 const KIND_LABEL={software:'Software',hardware:'Hardware',data:'Daten',external:'Extern / API',logic:'Logik'};
 const KIND_COLOR={software:'#22d3ee',hardware:'#f87171',data:'#94a3b8',external:'#fbbf24',logic:'#fb923c'};
@@ -927,7 +935,9 @@ document.getElementById('reset').onclick=()=>{
   homing=90; dragNode=null; NODES.forEach(n=>{ n.fixed=false; });
   controls.enabled=true; camera.position.set(0,30,86); controls.target.set(0,0,0);
 };
-document.getElementById('spin').onclick=()=>{ ST.autoRotate=!ST.autoRotate; controls.autoRotate=ST.autoRotate; };
+const spinBtn=document.getElementById('spin');
+spinBtn.classList.toggle('on',ST.autoRotate);          // reflect the default-on state
+spinBtn.onclick=()=>{ ST.autoRotate=!ST.autoRotate; idle=IDLE_RESUME; spinBtn.classList.toggle('on',ST.autoRotate); };
 
 addEventListener('keydown',e=>{
   if(e.key>='1'&&e.key<='3'){ ST.lod=+e.key; document.getElementById('lod').value=e.key;
@@ -954,7 +964,12 @@ function updateStats(){
 const clock=new THREE.Clock();
 function tick(){
   const dt=clock.getDelta(), t=clock.elapsedTime;
-  if(!renderer.xr.isPresenting) controls.update();
+  if(!renderer.xr.isPresenting){
+    const busy = orbiting || dragging || dragCand;     // user is orbiting or handling an atom
+    idle = busy ? 0 : idle+dt;                         // measure stillness since last interaction
+    controls.autoRotate = ST.autoRotate && !busy && idle>IDLE_RESUME;  // resume after a calm pause
+    controls.update();
+  }
   galaxyGroup.rotation.y+=dt*0.012;                    // slow galactic turn
   coreGlow.material.opacity=0.42+0.1*Math.sin(t*0.7);
 

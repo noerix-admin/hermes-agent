@@ -458,11 +458,10 @@ controls.enableDamping=true; controls.dampingFactor=.07;
 controls.minDistance=6; controls.maxDistance=240;
 controls.autoRotate=true; controls.autoRotateSpeed=.5;   // gentle turntable, like a spinning globe
 
-/* auto-rotation that yields to the user: pause while orbiting/dragging, resume after a short idle */
+/* auto-rotation that yields to the user: pause while dragging, resume after a short idle.
+   OrbitControls already pauses autoRotate during an active orbit-drag; wheel-zoom keeps it spinning. */
 const IDLE_RESUME=2.5;                                   // seconds of stillness before it picks back up
-let orbiting=false, idle=IDLE_RESUME;                    // start already "idle" so it spins on load
-controls.addEventListener('start',()=>{ orbiting=true; });
-controls.addEventListener('end',  ()=>{ orbiting=false; idle=0; });
+let idle=IDLE_RESUME;                                    // start already "idle" so it spins on load
 
 const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene,camera));
@@ -801,7 +800,7 @@ addEventListener('pointerup',e=>{
       const h=ray.intersectObjects(visibleCores(),false); n=h.length?h[0].object.userData.group.userData.node:null; }
     if(n) onPick(n);
   }
-  dragNode=null; dragCand=null; dragging=false; controls.enabled=true;
+  dragNode=null; dragCand=null; dragging=false; controls.enabled=true; idle=0;  // calm pause after direct manipulation
 });
 function onPick(n){
   if(ST.mode==='whatif'){
@@ -965,7 +964,7 @@ const clock=new THREE.Clock();
 function tick(){
   const dt=clock.getDelta(), t=clock.elapsedTime;
   if(!renderer.xr.isPresenting){
-    const busy = orbiting || dragging || dragCand;     // user is orbiting or handling an atom
+    const busy = dragging || dragCand;                 // only atom handling — wheel-zoom keeps spinning
     idle = busy ? 0 : idle+dt;                         // measure stillness since last interaction
     controls.autoRotate = ST.autoRotate && !busy && idle>IDLE_RESUME;  // resume after a calm pause
     controls.update();

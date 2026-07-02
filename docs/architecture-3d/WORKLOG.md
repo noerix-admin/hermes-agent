@@ -15,6 +15,15 @@ offene Punkte unten verlinkt auf Issues.
 
 ---
 
+## 2026-07-02 — Autorotation der Galaxie
+
+**Erledigt**
+- Kamera-Autorotation als „Globus-Drehteller" (angelehnt an das Erde-Projekt): dreht die
+  ganze Galaxie langsam, standardmäßig **an** (`⟳ AUTO`-Button zeigt aktiven Zustand).
+- Höflich: pausiert automatisch beim Drehen/Zoomen und beim Ziehen von Atomen,
+  läuft nach ~2,5 s Ruhe von selbst wieder an (`IDLE_RESUME`).
+- Umschaltbar über den `⟳ AUTO`-Button; VR unverändert (Hintergrund dreht dort weiter).
+
 ## 2026-06-22 — Aufbau & Iterationen des 3D/VR-Viewers
 
 **Erledigt**

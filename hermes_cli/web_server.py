@@ -1410,6 +1410,108 @@ async def upload_managed_file(payload: ManagedFileUpload, request: Request):
     }
 
 
+# Streaming chat upload — accepts arbitrarily large files without buffering the
+# whole payload in memory (unlike /api/files/upload, which base64-decodes a data
+# URL and is capped at _MANAGED_FILE_MAX_BYTES). The dashboard chat uses this so
+# pasted / dropped / picked files of any type and size land in the workspace and
+# can be referenced by the agent.
+_UPLOAD_STREAM_CHUNK = 1024 * 1024  # 1 MiB
+_CHAT_UPLOAD_SUBDIR = "chat-uploads"
+_SAFE_UPLOAD_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _upload_stream_cap() -> int:
+    """Hard ceiling for streamed uploads in bytes; 0 = unlimited (default).
+
+    Override via HERMES_DASHBOARD_UPLOAD_MAX_BYTES to protect disk on shared
+    hosts. Unset/blank/invalid keeps the "eat any size" default.
+    """
+    raw = os.environ.get("HERMES_DASHBOARD_UPLOAD_MAX_BYTES", "").strip()
+    if not raw:
+        return 0
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
+def _sanitize_upload_name(raw: str) -> str:
+    """Reduce an arbitrary client filename to a safe basename.
+
+    Strips any path components (``/`` or ``\\``), replaces unsafe characters,
+    and bounds the length. Never returns an empty string.
+    """
+    base = (raw or "").replace("\\", "/").split("/")[-1].strip()
+    cleaned = _SAFE_UPLOAD_NAME_RE.sub("_", base).strip("._")
+    return (cleaned or "upload")[:120]
+
+
+@app.post("/api/files/upload-stream")
+async def upload_managed_file_stream(request: Request):
+    """Stream a raw request body to a file under ``<managed-root>/chat-uploads/``.
+
+    The original filename rides in the ``X-Hermes-Upload-Filename`` header
+    (percent-encoded); the body is the raw bytes (no multipart, no base64), so
+    files of any size stream straight to disk. Returns the absolute path so the
+    chat client can reference the upload as an attachment.
+    """
+    policy = _managed_files_policy(request)
+    root = policy.locked_root or policy.default_path
+
+    raw_name = request.headers.get("x-hermes-upload-filename", "")
+    try:
+        raw_name = urllib.parse.unquote(raw_name)
+    except Exception:
+        pass
+    safe_name = _sanitize_upload_name(raw_name)
+
+    upload_dir = _canonical_path(root) / _CHAT_UPLOAD_SUBDIR
+    if policy.locked_root is not None and not _path_is_under(policy.locked_root, upload_dir):
+        raise HTTPException(status_code=403, detail="Upload dir outside managed files root")
+    try:
+        upload_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not create upload dir: {exc}")
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    target = upload_dir / f"{stamp}_{secrets.token_hex(3)}_{safe_name}"
+
+    cap = _upload_stream_cap()
+    written = 0
+    try:
+        with target.open("wb") as fh:
+            async for chunk in request.stream():
+                if not chunk:
+                    continue
+                written += len(chunk)
+                if cap and written > cap:
+                    raise HTTPException(status_code=413, detail="File exceeds upload size limit")
+                fh.write(chunk)
+    except HTTPException:
+        target.unlink(missing_ok=True)
+        raise
+    except OSError as exc:
+        target.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Could not write upload: {exc}")
+
+    if written == 0:
+        target.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Empty upload")
+
+    mime_type = mimetypes.guess_type(target.name)[0] or (
+        (request.headers.get("content-type") or "application/octet-stream").split(";", 1)[0]
+    )
+
+    return {
+        "ok": True,
+        "path": str(target),
+        "name": safe_name,
+        "size": written,
+        "mime_type": mime_type,
+        **_managed_response_meta(policy),
+    }
+
+
 @app.post("/api/files/mkdir")
 async def create_managed_directory(payload: ManagedDirectoryCreate, request: Request):
     policy, target, display_path = _resolve_managed_path(payload.path, request, for_write=True)

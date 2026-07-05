@@ -1,0 +1,71 @@
+# Fork-only image publish → GitHub Container Registry (GHCR).
+#
+# The upstream `docker-publish.yml` is gated to NousResearch/hermes-agent and
+# pushes to Docker Hub with secrets this fork doesn't have. This workflow builds
+# the same Dockerfile and pushes to ghcr.io/<owner>/hermes-agent using the
+# built-in GITHUB_TOKEN, so a self-hosted deployment (e.g. a home NAS) can pull
+# the fork's own image instead of the upstream one.
+#
+# Trigger: every push to main (i.e. after a PR merges) + manual dispatch.
+# Consume on the NAS:
+#   docker login ghcr.io          # once, with a read:packages PAT
+#   docker compose pull && docker compose up -d --force-recreate
+name: Publish image to GHCR (fork)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# Never cancel a publish mid-flight — each merge should produce its image.
+concurrency:
+  group: ghcr-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-push:
+    # Fork guard: don't attempt to push into the upstream namespace if this
+    # workflow ever lands there via a sync.
+    if: github.repository_owner == 'noerix-admin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # amd64 only: QNAP Container Station hosts are x86_64. If the NAS is arm64
+      # (uname -m == aarch64), change platforms to linux/arm64 (or add both).
+      - name: Build and push (amd64)
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          build-args: |
+            HERMES_GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=ghcr-amd64
+          cache-to: type=gha,mode=max,scope=ghcr-amd64

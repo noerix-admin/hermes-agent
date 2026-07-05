@@ -24,9 +24,9 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
-import { HERMES_BASE_PATH, buildWsAuthParam } from "@/lib/api";
+import { HERMES_BASE_PATH, authedFetch, buildWsAuthParam } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Copy, PanelRight, X } from "lucide-react";
+import { Copy, PanelRight, Paperclip, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
@@ -171,6 +171,67 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     () => ({ ...TERMINAL_THEME_STATIC, background: terminalBg }),
     [terminalBg],
   );
+
+  // File attachments (paste / drag-drop / picker). Uploaded to the workspace via
+  // the streaming endpoint, then the absolute path is pasted into the terminal so
+  // the TUI composer attaches it. Works for any file type/size.
+  const [uploadCount, setUploadCount] = useState(0);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const uploadFiles = useCallback(async (files: FileList | File[]) => {
+    const term = termRef.current;
+    const list = Array.from(files).filter((f) => f && f.size > 0);
+    if (!term || list.length === 0) return;
+    for (const file of list) {
+      setUploadCount((n) => n + 1);
+      try {
+        // authedFetch prepends HERMES_BASE_PATH itself — pass a root-relative path.
+        const res = await authedFetch(
+          "/api/files/upload-stream",
+          {
+            method: "POST",
+            body: file,
+            headers: {
+              "X-Hermes-Upload-Filename": encodeURIComponent(
+                file.name || "upload",
+              ),
+              "Content-Type": file.type || "application/octet-stream",
+            },
+          },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as { path?: string };
+        if (data?.path) {
+          // Trailing space so the TUI tokenizes the path as one attachment ref.
+          term.paste(`${data.path} `);
+          term.focus();
+        }
+      } catch (err) {
+        console.warn("[dashboard upload] failed:", err);
+      } finally {
+        setUploadCount((n) => Math.max(0, n - 1));
+      }
+    }
+  }, []);
+
+  // Intercept *file* paste on the terminal (clipboard images / files). Plain
+  // text paste is left to xterm's own handler (Ctrl+Shift+V); we only claim the
+  // event when the clipboard actually carries files.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const files = e.clipboardData?.files;
+      if (files && files.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        void uploadFiles(files);
+      }
+    };
+    host.addEventListener("paste", onPaste, true);
+    return () => host.removeEventListener("paste", onPaste, true);
+  }, [uploadFiles]);
 
   // The dashboard keeps ChatPage mounted persistently so the PTY survives tab
   // switches. That is great for ordinary /chat navigation, but it means query
@@ -889,11 +950,85 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
             backgroundColor: terminalBg,
             boxShadow: "0 8px 32px rgba(0, 0, 0, 0.4)",
           }}
+          onDragEnter={(e) => {
+            if (e.dataTransfer?.types?.includes("Files")) {
+              e.preventDefault();
+              setDragActive(true);
+            }
+          }}
+          onDragOver={(e) => {
+            if (e.dataTransfer?.types?.includes("Files")) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+            }
+          }}
+          onDragLeave={(e) => {
+            if (e.currentTarget === e.target) setDragActive(false);
+          }}
+          onDrop={(e) => {
+            const files = e.dataTransfer?.files;
+            if (files && files.length > 0) {
+              e.preventDefault();
+              setDragActive(false);
+              void uploadFiles(files);
+            }
+          }}
         >
           <div
             ref={hostRef}
             className="hermes-chat-xterm-host min-h-0 min-w-0 flex-1"
           />
+
+          {dragActive && (
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-2 sm:inset-3 z-20",
+                "flex items-center justify-center rounded-lg",
+                "border-2 border-dashed border-current/50",
+                "bg-black/40 backdrop-blur-sm",
+              )}
+              style={{ color: TERMINAL_THEME_STATIC.foreground }}
+            >
+              <span className="text-sm tracking-wide">drop files to attach</span>
+            </div>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = e.target.files;
+              if (files && files.length > 0) void uploadFiles(files);
+              e.target.value = "";
+            }}
+          />
+
+          <Button
+            ghost
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach files (or paste / drag & drop) — any type, any size"
+            aria-label="Attach files"
+            className={cn(
+              "absolute z-10",
+              "normal-case tracking-normal font-normal",
+              "rounded border border-current/30",
+              "bg-black/20 backdrop-blur-sm",
+              "opacity-70 hover:opacity-100 hover:border-current/60",
+              "transition-opacity duration-150",
+              "bottom-2 left-2 px-2 py-1 text-xs sm:bottom-3 sm:left-3 sm:px-2.5 sm:py-1.5",
+              "lg:bottom-4 lg:left-4",
+            )}
+            style={{ color: TERMINAL_THEME_STATIC.foreground }}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <Paperclip className="h-3 w-3 shrink-0" />
+              <span className="hidden min-[400px]:inline tracking-wide">
+                {uploadCount > 0 ? `uploading… (${uploadCount})` : "attach"}
+              </span>
+            </span>
+          </Button>
 
           <Button
             ghost

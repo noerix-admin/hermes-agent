@@ -244,3 +244,74 @@ def test_hosted_policy_locks_to_opt_data(monkeypatch):
 
     assert str(policy.locked_root) == "/opt/data"
     assert policy.can_change_path is False
+
+
+def test_stream_upload_writes_to_chat_uploads_and_returns_path(forced_files_client):
+    client, root = forced_files_client
+
+    res = client.post(
+        "/api/files/upload-stream",
+        content=b"hello streamed world",
+        headers={
+            "X-Hermes-Upload-Filename": "note%20one.txt",
+            "Content-Type": "text/plain",
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["size"] == len(b"hello streamed world")
+
+    target = root / "chat-uploads"
+    written = list(target.iterdir())
+    assert len(written) == 1
+    # Path is returned absolute and lands under <root>/chat-uploads/.
+    assert body["path"] == str(written[0])
+    assert written[0].read_bytes() == b"hello streamed world"
+    # Filename sanitized (space -> underscore) and preserved as a suffix.
+    assert written[0].name.endswith("note_one.txt")
+
+
+def test_stream_upload_sanitizes_traversal_in_filename(forced_files_client):
+    client, root = forced_files_client
+
+    res = client.post(
+        "/api/files/upload-stream",
+        content=b"x",
+        headers={"X-Hermes-Upload-Filename": "..%2F..%2Fetc%2Fpasswd"},
+    )
+    assert res.status_code == 200
+    written = list((root / "chat-uploads").iterdir())
+    assert len(written) == 1
+    # No path components survive; the file stays inside chat-uploads.
+    assert "/" not in written[0].name
+    assert written[0].parent == root / "chat-uploads"
+    assert written[0].name.endswith("passwd")
+
+
+def test_stream_upload_rejects_empty_body(forced_files_client):
+    client, root = forced_files_client
+
+    res = client.post(
+        "/api/files/upload-stream",
+        content=b"",
+        headers={"X-Hermes-Upload-Filename": "empty.bin"},
+    )
+    assert res.status_code == 400
+    assert not (root / "chat-uploads").exists() or not list(
+        (root / "chat-uploads").iterdir()
+    )
+
+
+def test_stream_upload_enforces_optional_cap(forced_files_client, monkeypatch):
+    client, root = forced_files_client
+    monkeypatch.setenv("HERMES_DASHBOARD_UPLOAD_MAX_BYTES", "4")
+
+    res = client.post(
+        "/api/files/upload-stream",
+        content=b"way too big",
+        headers={"X-Hermes-Upload-Filename": "big.bin"},
+    )
+    assert res.status_code == 413
+    # Partial file is cleaned up on rejection.
+    assert not list((root / "chat-uploads").iterdir())

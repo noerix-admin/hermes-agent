@@ -1,0 +1,106 @@
+name: Deploy Architecture 3D
+
+# Publishes the holographic architecture viewer to GitHub Pages.
+#  - push to `main`            -> site root   (https://<owner>.github.io/<repo>/)
+#  - push to any other branch  -> branch preview
+#                                 (https://<owner>.github.io/<repo>/previews/<slug>/)
+# Previews accumulate (kept across deploys) so WIP on feature branches is
+# viewable before merge. Pages source must be set once to: branch `gh-pages` / root.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'docs/architecture-3d/**'
+      - '.github/workflows/deploy-architecture-3d.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: arch3d-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Fork-scoped: never runs on the upstream repo, which owns the Pages site
+    # via deploy-site.yml. Only this fork publishes the architecture viewer.
+    if: github.repository == 'noerix-admin/hermes-agent'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          path: src
+
+      - name: Publish viewer to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REF="${GITHUB_REF_NAME}"
+          SLUG=$(echo "$REF" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')
+          VIEWER="src/docs/architecture-3d/noerix-molecular.html"
+
+          # Clone the existing gh-pages branch, or start a fresh orphan branch.
+          if ! git clone --branch gh-pages --depth 1 \
+                "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" pages; then
+            rm -rf pages
+            mkdir pages
+            ( cd pages
+              git init -b gh-pages
+              git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" )
+          fi
+
+          cd pages
+          touch .nojekyll
+
+          if [ "$REF" = "main" ]; then
+            cp "../$VIEWER" index.html
+          else
+            mkdir -p "previews/$SLUG"
+            cp "../$VIEWER" "previews/$SLUG/index.html"
+          fi
+
+          # Regenerate the previews index listing every branch preview present.
+          mkdir -p previews
+          {
+            echo '<!doctype html><meta charset="utf-8"><title>Hermes Architecture — Previews</title>'
+            echo '<body style="font-family:ui-monospace,monospace;background:#02060a;color:#bdf3ff;padding:2.5rem;line-height:1.8">'
+            echo '<h1 style="color:#00e5ff;letter-spacing:3px">NOERIX · HERMES — BRANCH-PREVIEWS</h1>'
+            echo '<ul>'
+            for d in previews/*/; do
+              [ -e "$d" ] || continue
+              n=$(basename "$d")
+              echo "<li><a style=\"color:#00e5ff\" href=\"./$n/\">$n</a></li>"
+            done
+            echo '</ul>'
+            echo '<p><a style="color:#34d399" href="../">↑ Aktueller (main) Stand</a></p>'
+            echo '</body>'
+          } > previews/index.html
+
+          git add -A
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git commit -m "deploy architecture-3d from ${REF}"; then
+            git push origin gh-pages
+          else
+            echo "No changes to publish."
+          fi
+
+      - name: Report URL
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          SLUG=$(echo "$REF" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')
+          OWNER="${GITHUB_REPOSITORY%%/*}"; REPO="${GITHUB_REPOSITORY##*/}"
+          BASE="https://${OWNER}.github.io/${REPO}"
+          if [ "$REF" = "main" ]; then URL="$BASE/"; else URL="$BASE/previews/$SLUG/"; fi
+          {
+            echo "### 🧬 Architektur-3D veröffentlicht"
+            echo ""
+            echo "- Branch: \`$REF\`"
+            echo "- URL: <$URL>"
+            echo ""
+            echo "_Hinweis: einmalig Pages-Quelle = Branch \`gh-pages\` / root setzen._"
+          } >> "$GITHUB_STEP_SUMMARY"
